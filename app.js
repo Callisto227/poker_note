@@ -72,7 +72,9 @@ function panel(g, ph) {
   var info = r.type === 'T' ? (ph === 'bid' ? 'Темна: ставки до роздачі карт' : 'Тепер роздайте карти й грайте') :
     r.type === 'Z' ? 'Золота: кожна взятка +10' : r.type === 'B' ? 'Безкозирка' : '';
   var tags = '<div class="tags"><span class="tag dt">Роздає: ' + esc(g.names[R.dealer(g, g.cur)]) + '</span>' + (info ? '<span class="tag">' + info + '</span>' : '') + '</div>';
-  if (ph === 'tricks' && !g.hidden) return tricksPanel(g, r, tags);
+  if (ph === 'tricks' && g.hidden && R.hasBids(r) && S.tk !== g.id + '|' + g.cur)
+    return '<div class="panel">' + tags + '<h2>Усі замовили</h2><div class="rv">' + g.names.map((n, q) => '<div><span>' + esc(n) + '</span><b>' + r.bids[q] + '</b></div>').join('') + '</div>' + btn('rvgo', 'Ввести взятки') + '</div>';
+  if (ph === 'tricks') return tricksPanel(g, r, tags);
   var h = '<div class="panel">' + tags + '<h2>' + (ph === 'bid' ? 'Ставку оголошує' : 'Взятки вводить') + ': ' + esc(g.names[p]) + '</h2>';
   if (g.hidden && S.unl !== key) return h + '<p class="mut">Передайте телефон цьому гравцю. Інші не дивляться.</p>' + btn('unl', 'Я готовий(а)') + '</div>';
   var o = '';
@@ -82,12 +84,12 @@ function panel(g, ph) {
 function gamev(g) {
   var ph = R.phase(g), L = R.leaders(g), i = g.cur, run = g.names.map(() => 0);
   var t = '<div class="bar"><button class="ic" data-a="menu">‹</button><h1>' + (i < g.rounds.length ? 'Раунд ' + (i + 1) + '/' + g.rounds.length + ' · ' + g.rounds[i].cards + ' карт' : 'Підсумок') +
-    '</h1></div><div class="tbl"><div class="row head"><div></div>' + g.names.map((n, p) => '<div class="nm' + (L.indexOf(p) > -1 ? ' lead' : '') + '">' + (i < g.rounds.length && p === R.dealer(g, i) ? '● ' : '') + esc(n) + '</div>').join('') + '</div>';
+    '</h1></div><div class="scr"><div class="tbl"><div class="row head"><div></div>' + g.names.map((n, p) => '<div class="nm' + (L.indexOf(p) > -1 ? ' lead' : '') + '">' + (i < g.rounds.length && p === R.dealer(g, i) ? '● ' : '') + esc(n) + '</div>').join('') + '</div>';
   g.rounds.forEach(function (r, k) {
     if (r.done) g.names.forEach(function (_, p) { run[p] += R.roundScore(r, p); });
     t += row(g, k, run);
   });
-  return t + '</div>' + panel(g, ph);
+  return t + '</div></div>' + panel(g, ph);
 }
 function stp(k, p, v) {
   var a = ' data-a="stp" data-k="' + k + '" data-p="' + p + '" data-d=';
@@ -125,7 +127,10 @@ function render() {
   var g = G(), v = S.view, h;
   if (v === 'new') h = newv(); else if (v === 'game' && g) h = gamev(g); else if (v === 'hist') h = hist();
   else if (v === 'stat') h = statv(); else if (v === 'sett') h = sett(); else h = menu();
+  var os = $.querySelector('.scr'), st = os && prev === v ? os.scrollTop : 0;
+  $.className = v === 'game' && g ? 'gv' : '';
   $.innerHTML = h + (S.edit && g ? modal(g) : '');
+  var ns = $.querySelector('.scr'); if (ns) ns.scrollTop = st;
   if (prev !== v) { window.scrollTo(0, 0); prev = v; }
   if (S.sc && v === 'game' && !S.edit) { var cu = $.querySelector('.cur'); if (cu) cu.scrollIntoView({ block: 'center' }); S.sc = false; }
 }
@@ -148,6 +153,7 @@ function act(a, d) {
     case 'rm': drop(d.id); break;
     case 'del': if (drop(S.gid)) S.view = 'hist'; break;
     case 'clear': if (confirm('Видалити всі ігри та статистику?')) { S.games = []; S.view = 'menu'; } break;
+    case 'rvgo': S.tk = g.id + '|' + g.cur; S.sc = true; break;
     case 'unl': S.unl = g.cur + '|' + R.phase(g) + '|' + R.actor(g); break;
     case 'pick':
       var ph = R.phase(g), p = R.actor(g), v = +d.v;
