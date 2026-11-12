@@ -7,6 +7,7 @@ function buildRounds() {
   for (i = 1; i <= 11; i++) r.push(mk(i, 'N'));
   for (i = 0; i < 3; i++) r.push(mk(12, 'N'));
   for (i = 11; i >= 1; i--) r.push(mk(i, 'N'));
+  ['B', 'T', 'Z'].forEach(function (t) { r.push(mk(12, t)); });
   return r;
 }
 function newGame(names, first, hidden) {

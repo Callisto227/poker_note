@@ -3,7 +3,10 @@
 var R = window.RP, K = 'rp_v1', $ = document.getElementById('app');
 var S = { games: [], set: { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null, unl: null, edit: null };
 try { var d0 = JSON.parse(localStorage.getItem(K) || 'null'); if (d0) { S.games = d0.games || []; S.set = d0.set || S.set; } } catch (e) {}
-S.games.forEach(function (g) { R.refresh(g); });
+S.games.forEach(function (g) {
+  if (!g.finished && !g.rounds.some(function (r) { return r.type !== 'N'; })) ['B', 'T', 'Z'].forEach(function (t) { R.addSpecial(g, t); });
+  R.refresh(g);
+});
 function save() { try { localStorage.setItem(K, JSON.stringify({ games: S.games, set: S.set })); } catch (e) { alert('Не вдалося зберегти дані'); } }
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
@@ -27,17 +30,18 @@ function newv() {
     d.names.map((n, i) => '<button class="chip' + (d.first === i ? ' on' : '') + '" data-a="first" data-i="' + i + '">' + esc(n || 'Гравець ' + (i + 1)) + '</button>').join('') +
     '</div><label class="sw"><span>Прихований режим</span><input type="checkbox" id="hid"' + (d.hidden ? ' checked' : '') + '></label></div>' + btn('start', 'Почати гру');
 }
-function row(g, k, cur) {
-  var r = g.rounds[k], c = '<div class="row' + (cur ? ' cur' : '') + '" data-a="edit" data-i="' + k + '"><div class="rl t' + r.type + '">' + R.label(r) + '</div>';
+function row(g, k, run) {
+  var r = g.rounds[k], on = k <= g.cur;
+  var c = '<div class="row' + (k === g.cur ? ' cur' : '') + (on ? '' : ' dim') + '"' + (on ? ' data-a="edit" data-i="' + k + '"' : '') + '><div class="rl t' + r.type + '">' + R.label(r) + '</div>';
   g.names.forEach(function (_, p) {
-    var b = r.bids[p], t = r.tricks[p], big, sm, cls = '';
-    if (r.done) { var s = R.roundScore(r, p); big = (s > 0 ? '+' : '') + s; cls = s < 0 ? 'neg' : ''; sm = (R.hasBids(r) ? b + '/' : '') + t; }
-    else {
+    var b = r.bids[p], t = r.tricks[p], sm = '', big = '';
+    if (r.done) { big = run[p]; sm = (R.hasBids(r) ? b + '/' : '') + t; }
+    else if (b !== null || t !== null) {
       var all = !R.hasBids(r) || r.bids.every(x => x !== null);
-      var bs = b === null ? '–' : (g.hidden && !all ? '✓' : b), ts = t === null ? '–' : (g.hidden ? '✓' : t);
-      big = '·'; sm = (R.hasBids(r) ? bs + '/' : '') + ts;
+      var bs = b === null ? '-' : (g.hidden && !all ? '✓' : b), ts = t === null ? '-' : (g.hidden ? '✓' : t);
+      sm = (R.hasBids(r) ? bs + '/' : '') + ts;
     }
-    c += '<div><b class="' + cls + '">' + big + '</b><small>' + sm + '</small></div>';
+    c += '<div class="m">' + sm + '</div><b class="' + (big < 0 ? 'neg' : '') + '">' + big + '</b>';
   });
   return c + '</div>';
 }
@@ -57,13 +61,14 @@ function panel(g, ph) {
   return h + '<div class="pad">' + o + '</div></div>';
 }
 function gamev(g) {
-  var ph = R.phase(g), T = R.totals(g), L = R.leaders(g), i = g.cur;
+  var ph = R.phase(g), L = R.leaders(g), i = g.cur, run = g.names.map(() => 0);
   var t = '<div class="bar"><button class="ic" data-a="menu">‹</button><h1>' + (i < g.rounds.length ? 'Раунд ' + (i + 1) + '/' + g.rounds.length + ' · ' + g.rounds[i].cards + ' карт' : 'Підсумок') +
-    '</h1><button class="ic" data-a="del">🗑</button></div><div class="tbl"><div class="row head"><div></div>' + g.names.map(n => '<div>' + esc(n) + '</div>').join('') + '</div>' +
-    '<div class="row tot"><div>Σ</div>' + T.map((v, p) => '<div class="' + (L.indexOf(p) > -1 ? 'lead' : '') + '">' + v + '</div>').join('') + '</div>';
-  for (var k = Math.min(i, g.rounds.length - 1); k >= 0; k--) t += row(g, k, k === i);
-  t += '</div><div class="sp"><span>Додати раунд:</span><button data-a="addsp" data-t="B">Б</button><button data-a="addsp" data-t="T">Т</button><button data-a="addsp" data-t="Z">З</button></div>';
-  return t + panel(g, ph);
+    '</h1></div><div class="tbl"><div class="row head"><div></div>' + g.names.map((n, p) => '<div class="nm' + (L.indexOf(p) > -1 ? ' lead' : '') + '">' + esc(n) + '</div>').join('') + '</div>';
+  g.rounds.forEach(function (r, k) {
+    if (r.done) g.names.forEach(function (_, p) { run[p] += R.roundScore(r, p); });
+    t += row(g, k, run);
+  });
+  return t + '</div>' + panel(g, ph);
 }
 function stp(k, p, v) {
   var a = ' data-a="stp" data-k="' + k + '" data-p="' + p + '" data-d=';
@@ -103,8 +108,9 @@ function render() {
   else if (v === 'stat') h = statv(); else if (v === 'sett') h = sett(); else h = menu();
   $.innerHTML = h + (S.edit && g ? modal(g) : '');
   if (prev !== v) { window.scrollTo(0, 0); prev = v; }
+  if (S.sc && v === 'game' && !S.edit) { var cu = $.querySelector('.cur'); if (cu) cu.scrollIntoView({ block: 'center' }); S.sc = false; }
 }
-function open(id) { S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; }
+function open(id) { S.sc = true; S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; }
 function drop(id) { if (confirm('Видалити цю гру? Дію не можна скасувати.')) { S.games = S.games.filter(x => x.id !== id); return true; } return false; }
 function act(a, d) {
   var g = G(), touch = false;
@@ -128,7 +134,7 @@ function act(a, d) {
       var ph = R.phase(g), p = R.actor(g), v = +d.v;
       if (ph === 'bid') R.setBid(g, p, v); else R.setTricks(g, p, v);
       if (R.phase(g) === 'fix') { alert('Сума взяток має дорівнювати ' + g.rounds[g.cur].cards + '. Введіть взятки ще раз.'); R.resetTricks(g); }
-      touch = true; break;
+      S.sc = true; touch = true; break;
     case 'addsp': R.addSpecial(g, d.t); R.refresh(g); touch = true; break;
     case 'fin': g.finished = true; g.finishedAt = Date.now(); S.view = 'hist'; touch = true; break;
     case 'edit':
