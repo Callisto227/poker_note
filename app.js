@@ -37,8 +37,7 @@ function row(g, k, run) {
     var b = r.bids[p], t = r.tricks[p], sm = '', big = '';
     if (r.done) { big = run[p]; sm = (R.hasBids(r) ? b + '/' : '') + t; }
     else if (b !== null || t !== null) {
-      var all = !R.hasBids(r) || r.bids.every(x => x !== null);
-      var bs = b === null ? '-' : (g.hidden && !all ? '✓' : b), ts = t === null ? '-' : (g.hidden ? '✓' : t);
+      var bs = b === null ? '-' : (g.hidden ? '✓' : b), ts = t === null ? '-' : (g.hidden ? '✓' : t);
       sm = (R.hasBids(r) ? bs + '/' : '') + ts;
     }
     c += '<div class="m' + (on && p === dl ? ' dl' : '') + '">' + sm + '</div><b class="' + (big < 0 ? 'neg' : '') + '">' + big + '</b>';
@@ -73,7 +72,7 @@ function panel(g, ph) {
     r.type === 'Z' ? 'Золота: кожна взятка +10' : r.type === 'B' ? 'Безкозирка' : '';
   var tags = '<div class="tags"><span class="tag dt">Роздає: ' + esc(g.names[R.dealer(g, g.cur)]) + '</span>' + (info ? '<span class="tag">' + info + '</span>' : '') + '</div>';
   if (ph === 'tricks' && g.hidden && R.hasBids(r) && S.tk !== g.id + '|' + g.cur)
-    return '<div class="panel">' + tags + '<h2>Усі замовили</h2><div class="rv">' + g.names.map((n, q) => '<div><span>' + esc(n) + '</span><b>' + r.bids[q] + '</b></div>').join('') + '</div>' + btn('rvgo', 'Ввести взятки') + '</div>';
+    return '<div class="panel">' + tags + '<h2>Усі замовили</h2><p class="mut">Грайте раунд. Ставки відкриються після введення взяток.</p>' + btn('rvgo', 'Ввести взятки') + '</div>';
   if (ph === 'tricks') return tricksPanel(g, r, tags);
   var h = '<div class="panel">' + tags + '<h2>' + (ph === 'bid' ? 'Ставку оголошує' : 'Взятки вводить') + ': ' + esc(g.names[p]) + '</h2>';
   if (g.hidden && S.unl !== key) return h + '<p class="mut">Передайте телефон цьому гравцю. Інші не дивляться.</p>' + btn('unl', 'Я готовий(а)') + '</div>';
