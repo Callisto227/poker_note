@@ -6,4 +6,4 @@ g.rounds[11].bids = [6, null, 6]; a.ok(!R.bidAllowed(g, 11, 1, 0)); a.ok(R.bidAl
 R.setBid(g, 0, 0); R.setBid(g, 1, 0); a.ok(!R.bidAllowed(g, 0, 2, 1)); R.setBid(g, 2, 0);
 R.setTricks(g, 0, 1); R.setTricks(g, 1, 0); R.setTricks(g, 2, 0);
 a.strictEqual(g.cur, 1); a.deepStrictEqual(R.totals(g), [1, 5, 5]); a.deepStrictEqual(R.leaders(g), [1, 2]);
-g.rounds[1].tricks = [2, 1, 1]; a.ok(R.validate(g, 1)); console.log('OK');
+g.rounds[1].tricks = [2, 1, 1]; a.ok(R.validate(g, 1)); a.strictEqual(R.dealer(R.newGame(['М','С','К'],1,false),0),0);console.log('OK');

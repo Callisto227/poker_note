@@ -23,6 +23,7 @@ function order(gm, i) {
   for (var k = 0; k < n; k++) o.push((gm.first + i + k) % n);
   return o;
 }
+var dealer = (gm, i) => { var o = order(gm, i); return o[o.length - 1]; };
 function score(type, bid, tr) {
   if (type === 'Z') return tr * 10;
   if (bid === 0) return tr === 0 ? 5 : tr;
@@ -106,7 +107,7 @@ function stats(games) {
   return Object.keys(m).map(k => ({ name: m[k].name, games: m[k].games, wins: m[k].wins,
     avg: Math.round(m[k].sum / m[k].games), best: m[k].best })).sort((a, b) => b.wins - a.wins || b.avg - a.avg);
 }
-var api = { newGame, label, hasBids, addSpecial, order, score, bidAllowed, validate, complete, refresh, phase, actor, can,
+var api = { dealer, newGame, label, hasBids, addSpecial, order, score, bidAllowed, validate, complete, refresh, phase, actor, can,
   setBid, setTricks, resetTricks, roundScore, totals, leaders, stats };
 if (typeof module !== 'undefined') module.exports = api; else g.RP = api;
 })(this);

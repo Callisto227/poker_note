@@ -31,7 +31,7 @@ function newv() {
     '</div><label class="sw"><span>Прихований режим</span><input type="checkbox" id="hid"' + (d.hidden ? ' checked' : '') + '></label></div>' + btn('start', 'Почати гру');
 }
 function row(g, k, run) {
-  var r = g.rounds[k], on = k <= g.cur;
+  var r = g.rounds[k], on = k <= g.cur, dl = R.dealer(g, k);
   var c = '<div class="row' + (k === g.cur ? ' cur' : '') + (on ? '' : ' dim') + '"' + (on ? ' data-a="edit" data-i="' + k + '"' : '') + '><div class="rl t' + r.type + '">' + R.label(r) + '</div>';
   g.names.forEach(function (_, p) {
     var b = r.bids[p], t = r.tricks[p], sm = '', big = '';
@@ -41,9 +41,27 @@ function row(g, k, run) {
       var bs = b === null ? '-' : (g.hidden && !all ? '✓' : b), ts = t === null ? '-' : (g.hidden ? '✓' : t);
       sm = (R.hasBids(r) ? bs + '/' : '') + ts;
     }
-    c += '<div class="m">' + sm + '</div><b class="' + (big < 0 ? 'neg' : '') + '">' + big + '</b>';
+    c += '<div class="m' + (on && p === dl ? ' dl' : '') + '">' + sm + '</div><b class="' + (big < 0 ? 'neg' : '') + '">' + big + '</b>';
   });
   return c + '</div>';
+}
+function trEff(g) {
+  var r = g.rounds[g.cur], k = g.id + '|' + g.cur;
+  if (!S.tr || S.tr.k !== k) S.tr = { k: k, v: r.tricks.slice() };
+  var v = S.tr.v, ev = v.slice(), auto = -1, nl = v.filter(x => x === null).length;
+  if (nl === 1) { var ai = v.indexOf(null), q = r.cards - v.reduce((s, x) => s + (x || 0), 0); if (q >= 0) { ev[ai] = q; auto = ai; } }
+  return { v: v, ev: ev, auto: auto, ok: ev.every(x => x !== null) && ev.reduce((s, x) => s + x, 0) === r.cards };
+}
+function tricksPanel(g, r, tags) {
+  var e = trEff(g), h = '<div class="panel">' + tags + '<h2>Скільки взяток узяв кожен</h2>';
+  g.names.forEach(function (n, p) {
+    var o = 0; e.v.forEach(function (x, q) { if (q !== p) o += x || 0; });
+    h += '<div class="tr"><span>' + esc(n) + '</span><div class="chs">';
+    for (var k = 0; k <= r.cards; k++) h += '<button class="' + (e.ev[p] === k ? (e.auto === p ? 'on auto' : 'on') : '') + '" data-a="tpick" data-p="' + p + '" data-v="' + k + '"' + (k > r.cards - o ? ' disabled' : '') + '>' + k + '</button>';
+    h += '</div></div>';
+  });
+  if (e.ev.every(x => x !== null) && !e.ok) h += '<p class="err">Сума взяток має бути ' + r.cards + '</p>';
+  return h + btn('tdone', 'Готово', '', !e.ok) + '</div>';
 }
 function panel(g, ph) {
   if (ph === 'end') {
@@ -53,8 +71,9 @@ function panel(g, ph) {
   var r = g.rounds[g.cur], p = R.actor(g), key = g.cur + '|' + ph + '|' + p;
   var info = r.type === 'T' ? (ph === 'bid' ? 'Темна: ставки до роздачі карт' : 'Тепер роздайте карти й грайте') :
     r.type === 'Z' ? 'Золота: кожна взятка +10' : r.type === 'B' ? 'Безкозирка' : '';
-  var h = '<div class="panel">' + (info ? '<div class="tag">' + info + '</div>' : '') +
-    '<h2>' + (ph === 'bid' ? 'Ставку оголошує' : 'Взятки вводить') + ': ' + esc(g.names[p]) + '</h2>';
+  var tags = '<div class="tags"><span class="tag dt">Роздає: ' + esc(g.names[R.dealer(g, g.cur)]) + '</span>' + (info ? '<span class="tag">' + info + '</span>' : '') + '</div>';
+  if (ph === 'tricks' && !g.hidden) return tricksPanel(g, r, tags);
+  var h = '<div class="panel">' + tags + '<h2>' + (ph === 'bid' ? 'Ставку оголошує' : 'Взятки вводить') + ': ' + esc(g.names[p]) + '</h2>';
   if (g.hidden && S.unl !== key) return h + '<p class="mut">Передайте телефон цьому гравцю. Інші не дивляться.</p>' + btn('unl', 'Я готовий(а)') + '</div>';
   var o = '';
   for (var v = 0; v <= r.cards; v++) o += '<button data-a="pick" data-v="' + v + '"' + (R.can(g, ph, p, v) ? '' : ' disabled') + '>' + v + '</button>';
@@ -63,7 +82,7 @@ function panel(g, ph) {
 function gamev(g) {
   var ph = R.phase(g), L = R.leaders(g), i = g.cur, run = g.names.map(() => 0);
   var t = '<div class="bar"><button class="ic" data-a="menu">‹</button><h1>' + (i < g.rounds.length ? 'Раунд ' + (i + 1) + '/' + g.rounds.length + ' · ' + g.rounds[i].cards + ' карт' : 'Підсумок') +
-    '</h1></div><div class="tbl"><div class="row head"><div></div>' + g.names.map((n, p) => '<div class="nm' + (L.indexOf(p) > -1 ? ' lead' : '') + '">' + esc(n) + '</div>').join('') + '</div>';
+    '</h1></div><div class="tbl"><div class="row head"><div></div>' + g.names.map((n, p) => '<div class="nm' + (L.indexOf(p) > -1 ? ' lead' : '') + '">' + (i < g.rounds.length && p === R.dealer(g, i) ? '● ' : '') + esc(n) + '</div>').join('') + '</div>';
   g.rounds.forEach(function (r, k) {
     if (r.done) g.names.forEach(function (_, p) { run[p] += R.roundScore(r, p); });
     t += row(g, k, run);
@@ -135,6 +154,8 @@ function act(a, d) {
       if (ph === 'bid') R.setBid(g, p, v); else R.setTricks(g, p, v);
       if (R.phase(g) === 'fix') { alert('Сума взяток має дорівнювати ' + g.rounds[g.cur].cards + '. Введіть взятки ще раз.'); R.resetTricks(g); }
       S.sc = true; touch = true; break;
+    case 'tpick': var te = trEff(g), tp = +d.p, tv = +d.v; te.v[tp] = te.v[tp] === tv ? null : tv; break;
+    case 'tdone': var td = trEff(g); if (td.ok) { g.rounds[g.cur].tricks = td.ev.slice(); S.tr = null; R.refresh(g); S.sc = true; touch = true; } break;
     case 'addsp': R.addSpecial(g, d.t); R.refresh(g); touch = true; break;
     case 'fin': g.finished = true; g.finishedAt = Date.now(); S.view = 'hist'; touch = true; break;
     case 'edit':
@@ -151,7 +172,7 @@ function act(a, d) {
       var err = R.validate(g, ed.i);
       if (!err && wasDone && !R.complete(g, ed.i)) err = 'Завершений раунд: заповніть усі значення, сума взяток = ' + rr.cards;
       if (err) { rr.bids = ob; rr.tricks = ot; ed.err = err; }
-      else { R.refresh(g); S.edit = null; touch = true; }
+      else { R.refresh(g); S.edit = null; S.tr = null; touch = true; }
       break;
   }
   if (touch && g) g.updated = Date.now();
