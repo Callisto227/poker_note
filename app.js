@@ -326,7 +326,7 @@ function winv(g) {
     ord.map((p, k) => '<div><span>' + (k + 1) + '. ' + esc(g.names[p]) + '</span><b>' + T[p] + '</b></div>').join('') + '</div>' + btn('winx', 'Готово') + '</div></div>';
 }
 function eggv(key) {
-  return '<div class="mask c"><div class="eg"><div class="big">💋</div><p>Поцілуй в щічку коханого на удачу</p>' + btn('egx', 'Поцілував(ла)', '', 0, ' data-k="' + key + '"') + '</div></div>';
+  return '<div class="mask c"><div class="eg"><div class="big">💋</div><p>Поцілуй в щічку коханого на удачу</p>' + btn('egx', 'Поцілувала', '', 0, ' data-k="' + key + '"') + '</div></div>';
 }
 function act(a, d) {
   var g = G();
