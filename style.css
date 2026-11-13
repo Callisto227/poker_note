@@ -64,3 +64,5 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .card.h{display:flex;align-items:center;gap:10px;margin:0;padding:10px 12px}.hm{flex:1;min-width:0}.sm{font-size:13px;color:var(--mut)}.pl{margin:4px 0 0;font-size:13px}.pl span{text-align:left}
 .pager{flex:none;display:flex;justify-content:center;align-items:center;gap:18px;padding:10px 0 calc(6px + env(safe-area-inset-bottom))}.ic:disabled{opacity:.3}
 .nrow{display:flex;gap:8px}.nrow .in{min-width:0}
+.addrow{flex:none;display:flex;gap:8px;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}.addrow .in{flex:1;margin:0;min-width:0}.addrow .btn{width:auto;margin:0;padding:0 18px}
+select.in{-webkit-appearance:none;appearance:none;text-align-last:left;margin:4px 0}

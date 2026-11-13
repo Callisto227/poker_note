@@ -6,8 +6,8 @@ function sv(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e
 var AUTO = (function () { var p = location.pathname.split('/')[1]; return /\.github\.io$/.test(location.hostname) && p ? location.hostname.split('.')[0] + '/' + p : ''; })();
 var DR = AUTO ? AUTO.split('/')[0] + '/poker_data' : '';
 var C = ld('rp_cfg') || {}; if (C.repo === AUTO) C = {}; C.repo = C.repo || DR; sv('rp_cfg', C);
-var P = ld('rp_pend') || { g: {}, del: [] }, L0 = ld('rp_v1') || {};
-var S = { games: [], set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
+var P = ld('rp_pend') || { g: {}, del: [] }, L0 = ld('rp_v1') || {}; P.pl = P.pl || {};
+var S = { games: [], players: [], set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
   unl: null, edit: null, sh: false, st: C.tok && C.repo ? 'load' : 'off', cd: { tok: '', repo: C.repo || '' }, msg: '', pg: 0 };
 var tm = null, busy = false, sha = null, prev = '';
 var esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -19,6 +19,7 @@ var br = () => '';
 var canW = () => !!(C.tok && C.repo);
 
 /* ---------- сховище GitHub ---------- */
+function lsave() { sv('rp_v1', { games: S.games, players: S.players }); }
 var b64d = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g, '')), c => c.charCodeAt(0)));
 function b64e(s) { var u = new TextEncoder().encode(s), o = '', i; for (i = 0; i < u.length; i += 8192) o += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(o); }
 function api(m, body) {
@@ -30,9 +31,9 @@ function api(m, body) {
 }
 async function pull() {
   var r = await api('GET');
-  if (r.status === 404) { sha = null; return []; }
+  if (r.status === 404) { sha = null; return { g: [], p: [] }; }
   if (!r.ok) throw new Error(r.status);
-  var j = await r.json(); sha = j.sha; return JSON.parse(b64d(j.content)).games || [];
+  var j = await r.json(), d = JSON.parse(b64d(j.content)); sha = j.sha; return { g: d.games || [], p: d.players || [] };
 }
 function applyPend(list) {
   list = list.filter(g => P.del.indexOf(g.id) < 0);
@@ -42,21 +43,30 @@ function applyPend(list) {
   });
   return list;
 }
-var pend = () => Object.keys(P.g).length || P.del.length;
+function applyPl(list) {
+  Object.keys(P.pl).forEach(function (id) {
+    var d = P.pl[id], i = list.findIndex(x => x.id === id);
+    if (i < 0) list.push(d); else if ((d.updated || 0) >= (list[i].updated || 0)) list[i] = d;
+  });
+  return list;
+}
+function load(rem) { S.games = applyPend(rem.g); S.players = applyPl(rem.p); }
+var pend = () => Object.keys(P.g).length || P.del.length || Object.keys(P.pl).length;
 async function flush() {
   if (!canW() || busy || !pend()) return;
   busy = true; S.st = 'sync'; ui();
   var snap = {}, sd = P.del.slice(), ok = false; S.err = '';
-  Object.keys(P.g).forEach(id => { snap[id] = P.g[id].updated; });
+  var snp = {}; Object.keys(P.g).forEach(id => { snap[id] = P.g[id].updated; }); Object.keys(P.pl).forEach(id => { snp[id] = P.pl[id].updated; });
   try {
     for (var t = 0; t < 3 && !ok; t++) {
-      var list = applyPend(await pull());
-      var r = await api('PUT', { message: 'sync', content: b64e(JSON.stringify({ games: list })), sha: sha || undefined });
+      var rem = await pull(), list = applyPend(rem.g), pl = applyPl(rem.p);
+      var r = await api('PUT', { message: 'sync', content: b64e(JSON.stringify({ games: list, players: pl })), sha: sha || undefined });
       if (r.ok) {
         sha = (await r.json()).content.sha;
         Object.keys(snap).forEach(id => { if (P.g[id] && P.g[id].updated === snap[id]) delete P.g[id]; });
+        Object.keys(snp).forEach(id => { if (P.pl[id] && P.pl[id].updated === snp[id]) delete P.pl[id]; });
         P.del = P.del.filter(id => sd.indexOf(id) < 0); sv('rp_pend', P);
-        list.forEach(R.refresh); S.games = list; ok = true;
+        list.forEach(R.refresh); S.games = list; S.players = pl; ok = true;
       } else { S.err = String(r.status); if (r.status !== 409 && r.status !== 422) throw new Error(r.status); }
     }
   } catch (e) { if (!S.err) S.err = String(e.message || e); }
@@ -70,19 +80,19 @@ function queue(ms) {
 }
 function dirty(g) {
   g.updated = Date.now();
-  if (!canW()) { sv('rp_v1', { games: S.games }); return; }
+  if (!canW()) { lsave(); return; }
   P.g[g.id] = g; queue(600);
 }
 function drop(id) {
   if (!confirm('Видалити цю гру? Дію не можна скасувати.')) return false;
   S.games = S.games.filter(x => x.id !== id);
-  if (canW()) { delete P.g[id]; P.del.push(id); queue(300); } else sv('rp_v1', { games: S.games });
+  if (canW()) { delete P.g[id]; P.del.push(id); queue(300); } else lsave();
   return true;
 }
 async function refresh() {
   if (!canW()) return;
   S.st = 'load'; ui();
-  try { S.games = applyPend(await pull()); S.games.forEach(R.refresh); S.st = pend() && !canW() ? 'notok' : (canW() ? 'ok' : 'ro'); } catch (e) { S.st = 'err'; }
+  try { load(await pull()); S.games.forEach(R.refresh); ensurePl(); S.st = pend() && !canW() ? 'notok' : (canW() ? 'ok' : 'ro'); } catch (e) { S.st = 'err'; }
   render();
 }
 async function conn() {
@@ -95,8 +105,8 @@ async function conn() {
     var pm = (await rr.json()).permissions;
     if (!pm || !pm.push) { S.msg = 'Токен без права запису (потрібно Contents: Read and write)'; render(); return; }
     C = { tok: tok, repo: repo }; sv('rp_cfg', C); S.cd.tok = ''; sha = null; S.msg = 'Підключено';
-    S.games.forEach(g => { P.g[g.id] = g; }); sv('rp_pend', P); localStorage.removeItem('rp_v1');
-    try { S.games = applyPend(await pull()); S.games.forEach(R.refresh); } catch (e) {}
+    S.games.forEach(g => { P.g[g.id] = g; }); S.players.forEach(p => { P.pl[p.id] = p; }); sv('rp_pend', P); localStorage.removeItem('rp_v1');
+    try { load(await pull()); S.games.forEach(R.refresh); ensurePl(); } catch (e) {}
     S.st = 'ok'; flush();
   } catch (e) {
     var ec = String(e.message || e);
@@ -104,17 +114,43 @@ async function conn() {
   }
   render();
 }
+function pid(n) { var h = 5381, s = n.trim().toLowerCase(); for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return 'p' + (h >>> 0).toString(36); }
+var pls = () => S.players.filter(p => !p.del);
+var pn = id => { var p = S.players.find(x => x.id === id); return p ? p.name : ''; };
+var gids = g => g.pids || g.names.map(pid);
+function savePl(p) {
+  p.updated = Date.now(); var i = S.players.findIndex(x => x.id === p.id);
+  if (i < 0) S.players.push(p); else S.players[i] = p;
+  if (canW()) { P.pl[p.id] = p; queue(600); } else lsave();
+}
+function addPl(name) {
+  var l = name.toLowerCase(), f = S.players.find(x => x.name.toLowerCase() === l);
+  if (f && !f.del) { alert('Такий гравець уже є'); return null; }
+  if (f) { f.del = false; savePl(f); return f.id; }
+  var id = pid(name); while (S.players.some(x => x.id === id)) id += 'x';
+  savePl({ id: id, name: name }); return id;
+}
+function ensurePl() { S.games.forEach(g => { var ids = gids(g); g.names.forEach((n, i) => { if (!S.players.some(x => x.id === ids[i])) savePl({ id: ids[i], name: n }); }); }); }
+function renamePl(p, nn) {
+  S.games.forEach(g => {
+    var ids = gids(g), ch = false;
+    ids.forEach((id, i) => { if (id === p.id && g.names[i] !== nn) { g.names[i] = nn; ch = true; } });
+    if (ch) { g.pids = ids; dirty(g); }
+  });
+  p.name = nn; savePl(p);
+}
 async function boot() {
   if (!canW()) {
     var m = {};
     (L0.games || []).concat(Object.keys(P.g).map(id => P.g[id])).forEach(g => { if (!m[g.id] || (g.updated || 0) >= (m[g.id].updated || 0)) m[g.id] = g; });
-    S.games = Object.keys(m).map(id => m[id]); S.games.forEach(R.refresh);
-    P = { g: {}, del: [] }; sv('rp_pend', P); sv('rp_v1', { games: S.games }); S.st = 'off'; render(); return;
+    S.games = Object.keys(m).map(id => m[id]); S.games.forEach(R.refresh); S.players = L0.players || [];
+    P = { g: {}, pl: {}, del: [] }; sv('rp_pend', P); ensurePl(); lsave(); S.st = 'off'; render(); return;
   }
-  (L0.games || []).forEach(g => { P.g[g.id] = g; }); localStorage.removeItem('rp_v1'); sv('rp_pend', P);
-  S.games = Object.keys(P.g).map(id => P.g[id]); S.games.forEach(R.refresh); render();
-  try { S.games = applyPend(await pull()); S.st = 'ok'; } catch (e) { S.st = 'err'; }
-  S.games.forEach(R.refresh); render(); flush();
+  (L0.games || []).forEach(g => { P.g[g.id] = g; }); (L0.players || []).forEach(p => { P.pl[p.id] = p; });
+  localStorage.removeItem('rp_v1'); sv('rp_pend', P);
+  S.games = Object.keys(P.g).map(id => P.g[id]); S.players = Object.keys(P.pl).map(id => P.pl[id]); S.games.forEach(R.refresh); render();
+  try { load(await pull()); S.games.forEach(R.refresh); ensurePl(); S.st = 'ok'; } catch (e) { S.st = 'err'; }
+  render(); flush();
 }
 window.addEventListener('online', flush);
 document.addEventListener('visibilitychange', function () { if (document.hidden) { clearTimeout(tm); flush(); } else if (!busy && !pend()) refresh(); });
@@ -126,16 +162,26 @@ function bar(t, right) { return '<div class="bar"><button class="ic" data-a="men
 function menu() {
   var un = S.games.filter(g => !g.finished).length;
   return '<div class="hero"><div class="logo">♠</div><h1>Розписний покер</h1></div>' + btn('new', 'Нова гра') + btn('cont', 'Продовжити гру' + (un ? ' (' + un + ')' : ''), '', !un) +
-    btn('hist', 'Історія ігор', 'sec') + btn('stat', 'Статистика', 'sec') + btn('sett', 'Налаштування', 'sec') +
+    btn('hist', 'Історія ігор', 'sec') + btn('plv', 'Гравці', 'sec') + btn('stat', 'Статистика', 'sec') + btn('sett', 'Налаштування', 'sec') +
     '<p class="mut" style="text-align:center"><span id="st">' + stTxt() + '</span>' + (!C.tok ? '<br>Ігри зберігаються лише на цьому пристрої. Щоб синхронізувати їх через GitHub, додайте токен у налаштуваннях.' : '') + '</p>';
 }
 function newv() {
-  var d = S.draft;
+  var d = S.draft, pl = pls().sort((x, y) => x.name.localeCompare(y.name, 'uk'));
+  if (pl.length < 3) return bar('Нова гра') + '<div class="card"><p>Щоб почати гру, потрібно щонайменше 3 гравці. Зараз у списку: ' + pl.length + '.</p></div>' + btn('plv', 'Додати гравців');
+  var dup = d.pids.some((x, i) => d.pids.indexOf(x) !== i);
   return bar('Нова гра') + '<div class="card"><label class="lb">Гравці</label>' +
-    d.names.map((n, i) => '<input class="in" data-i="' + i + '" value="' + esc(n) + '" maxlength="16" placeholder="Гравець ' + (i + 1) + '">').join('') +
-    '<label class="lb">Хто заходить першим</label><div class="chips">' +
-    d.names.map((n, i) => '<button class="chip' + (d.first === i ? ' on' : '') + '" data-a="first" data-i="' + i + '">' + esc(n || 'Гравець ' + (i + 1)) + '</button>').join('') +
-    '</div><label class="sw"><span>Прихований режим</span><input type="checkbox" id="hid"' + (d.hidden ? ' checked' : '') + '></label></div>' + btn('start', 'Почати гру');
+    d.pids.map((id, i) => '<select class="in" data-p="' + i + '">' + pl.map(p => '<option value="' + p.id + '"' + (p.id === id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '<option value="+">+ Новий гравець…</option></select>').join('') +
+    (dup ? '<p class="err">Гравці не повинні повторюватися</p>' : '') + '<label class="lb">Хто заходить першим</label><div class="chips">' +
+    d.pids.map((id, i) => '<button class="chip' + (d.first === i ? ' on' : '') + '" data-a="first" data-i="' + i + '">' + esc(pn(id)) + '</button>').join('') +
+    '</div><label class="sw"><span>Прихований режим</span><input type="checkbox" id="hid"' + (d.hidden ? ' checked' : '') + '></label></div>' + btn('start', 'Почати гру', '', dup);
+}
+function playersv() {
+  var l = pls().sort((x, y) => x.name.localeCompare(y.name, 'uk')), ps = 6, pg = pager(l.length, ps);
+  return bar('Гравці') + '<div class="fill">' + (l.length ? l.slice(S.pg * ps, S.pg * ps + ps).map(p => {
+    var n = S.games.filter(g => gids(g).indexOf(p.id) > -1).length;
+    return '<div class="card h" data-a="pren" data-id="' + p.id + '"><div class="hm"><b>' + esc(p.name) + '</b><div class="sm">ігор: ' + n + ' · торкніться, щоб змінити ім’я</div></div><button class="ic" data-a="prm" data-id="' + p.id + '">✕</button></div>';
+  }).join('') : '<p class="mut">Список порожній. Додайте першого гравця.</p>') + '</div>' + pg +
+    '<div class="addrow"><input class="in" id="pn" maxlength="16" placeholder="Ім’я нового гравця" autocapitalize="words"><button class="btn" data-a="padd">Додати</button></div>';
 }
 function row(g, k, run) {
   var r = g.rounds[k], on = k <= g.cur, dl = R.dealer(g, k);
@@ -213,14 +259,13 @@ function hist() {
   }).join('') : '<p class="mut">Ігор ще немає. Створіть першу в головному меню.</p>') + '</div>' + pg;
 }
 function statv() {
-  var s = R.stats(S.games), ps = 8, pg = pager(s.length, ps);
+  var s = R.stats(S.games, S.players, pid), ps = 8, pg = pager(s.length, ps);
   return bar('Статистика') + '<div class="fill">' + (s.length ? '<div class="tbl"><div class="row s5 head"><div>Гравець</div><div>Ігор</div><div>Перем.</div><div>Сер.</div><div>Макс.</div></div>' +
     s.slice(S.pg * ps, S.pg * ps + ps).map(x => '<div class="row s5"><div>' + esc(x.name) + '</div><div>' + x.games + '</div><div><b>' + x.wins + '</b></div><div>' + x.avg + '</div><div>' + x.best + '</div></div>').join('') + '</div>' :
     '<p class="mut">Статистика з’явиться після першої завершеної гри.</p>') + '</div>' + pg;
 }
 function sett() {
-  return bar('Налаштування') + '<div class="card"><label class="lb">Імена гравців за замовчуванням</label><div class="nrow">' +
-    S.set.names.map((n, i) => '<input class="in" data-s="' + i + '" value="' + esc(n) + '" maxlength="16">').join('') + '</div></div>' +
+  return bar('Налаштування') +
     '<div class="card"><label class="lb">Приватне сховище GitHub' + (C.tok ? ' · токен є' : '') + '</label><input class="in" type="password" data-c="tok" placeholder="' + (C.tok ? 'токен збережено' : 'токен github_pat_…') + '" autocomplete="off">' +
     '<input class="in" data-c="repo" value="' + esc(S.cd.repo) + '" placeholder="логін/репозиторій" autocapitalize="off">' + (S.msg ? '<p class="mut">' + esc(S.msg) + '</p>' : '') + '</div>' +
     btn('conn', C.tok ? 'Оновити підключення' : 'Підключити') + (C.tok ? btn('disc', 'Видалити токен з пристрою', 'sec') : '') +
@@ -229,7 +274,7 @@ function sett() {
 function render() {
   var g = G(), v = S.view, h;
   if (v === 'new') h = newv(); else if (v === 'game' && g) h = gamev(g); else if (v === 'hist') h = hist();
-  else if (v === 'stat') h = statv(); else if (v === 'sett') h = sett(); else h = menu();
+  else if (v === 'plv') h = playersv(); else if (v === 'stat') h = statv(); else if (v === 'sett') h = sett(); else h = menu();
   $.className = v === 'game' && g ? 'gv' : '';
   $.innerHTML = h + (S.edit && g ? modal(g) : '');
   if (prev !== v) { window.scrollTo(0, 0); prev = v; }
@@ -239,15 +284,27 @@ function act(a, d) {
   var g = G();
   switch (a) {
     case 'menu': S.view = 'menu'; S.edit = null; break;
-    case 'new': S.draft = { names: S.set.names.slice(), first: 0, hidden: false }; S.view = 'new'; break;
+    case 'new':
+      var ac = pls().map(x => x.id), pids = (S.set.last || []).filter(x => ac.indexOf(x) > -1).slice(0, 3);
+      ac.forEach(x => { if (pids.length < 3 && pids.indexOf(x) < 0) pids.push(x); });
+      S.draft = { pids: pids, first: 0, hidden: false }; S.view = 'new'; break;
     case 'first': S.draft.first = +d.i; break;
     case 'start':
-      var ng = R.newGame(S.draft.names.map((x, i) => x.trim() || 'Гравець ' + (i + 1)), S.draft.first, S.draft.hidden);
+      var ng = R.newGame(S.draft.pids.map(pn), S.draft.first, S.draft.hidden); ng.pids = S.draft.pids.slice(); S.set.last = ng.pids.slice(); sv('rp_set', S.set);
       R.refresh(ng); S.games.push(ng); open(ng.id); dirty(ng); break;
     case 'cont':
       var u = S.games.filter(x => !x.finished).sort((x, y) => (y.updated || 0) - (x.updated || 0))[0];
       if (u) open(u.id); break;
-    case 'hist': case 'stat': case 'sett': S.view = a; S.pg = 0; break;
+    case 'padd': var pv = (document.getElementById('pn').value || '').trim(); if (pv) addPl(pv); break;
+    case 'pren':
+      var pp = S.players.find(x => x.id === d.id), nn = (prompt('Нове ім’я гравця', pp.name) || '').trim();
+      if (nn && nn !== pp.name) { if (S.players.some(x => !x.del && x.id !== pp.id && x.name.toLowerCase() === nn.toLowerCase())) alert('Такий гравець уже є'); else renamePl(pp, nn); }
+      break;
+    case 'prm':
+      var pd = S.players.find(x => x.id === d.id);
+      if (pd && confirm('Видалити гравця «' + pd.name + '» зі списку? Його ігри й статистика збережуться.')) { pd.del = true; savePl(pd); }
+      break;
+    case 'hist': case 'stat': case 'sett': case 'plv': S.view = a; S.pg = 0; break;
     case 'pg': S.pg += +d.d; break;
     case 'ref': refresh(); break;
     case 'open': open(d.id); break;
@@ -255,7 +312,7 @@ function act(a, d) {
     case 'conn': conn(); return;
     case 'disc':
       if (confirm('Видалити токен з цього пристрою? Ігри залишаться в GitHub, але тут не будуть видні.')) {
-        S.games = Object.keys(P.g).map(id => P.g[id]); P = { g: {}, del: [] }; sv('rp_pend', P); sv('rp_v1', { games: S.games });
+        S.games = Object.keys(P.g).map(id => P.g[id]); P = { g: {}, pl: {}, del: [] }; sv('rp_pend', P); lsave();
         C = { repo: C.repo }; sv('rp_cfg', C); S.st = 'off'; S.msg = '';
       }
       break;
@@ -288,6 +345,13 @@ function act(a, d) {
   render();
 }
 $.addEventListener('click', function (e) { var t = e.target.closest('[data-a]'); if (t) act(t.dataset.a, t.dataset); });
+$.addEventListener('change', function (e) {
+  var t = e.target; if (t.dataset.p == null || !S.draft) return;
+  var i = +t.dataset.p;
+  if (t.value === '+') { var nn = (prompt('Ім’я нового гравця') || '').trim(), id = nn && addPl(nn); if (id) S.draft.pids[i] = id; }
+  else S.draft.pids[i] = t.value;
+  render();
+});
 $.addEventListener('input', function (e) {
   var t = e.target;
   if (t.dataset.i != null && S.draft) S.draft.names[+t.dataset.i] = t.value;

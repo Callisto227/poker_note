@@ -94,13 +94,14 @@ function leaders(gm) {
   var T = totals(gm), m = Math.max.apply(null, T);
   return T.map((v, p) => v === m ? p : -1).filter(p => p >= 0);
 }
-function stats(games) {
-  var m = {};
+function stats(games, players, pidf) {
+  var m = {}, pn = {};
+  (players || []).forEach(p => { pn[p.id] = p.name; });
   games.forEach(gm => {
     if (!gm.finished) return;
     var T = totals(gm), L = leaders(gm);
     gm.names.forEach((n, p) => {
-      var k = n.trim().toLowerCase(), s = m[k] || (m[k] = { name: n, games: 0, wins: 0, sum: 0, best: -Infinity });
+      var k = (gm.pids && gm.pids[p]) || (pidf ? pidf(n) : n.trim().toLowerCase()), s = m[k] || (m[k] = { name: pn[k] || n, games: 0, wins: 0, sum: 0, best: -Infinity });
       s.games++; s.sum += T[p]; if (L.indexOf(p) > -1) s.wins++; if (T[p] > s.best) s.best = T[p];
     });
   });
