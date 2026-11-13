@@ -12,7 +12,7 @@ var tm = null, busy = false, sha = null, prev = '';
 var esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 var G = () => S.games.find(g => g.id === S.gid);
 var fdate = t => new Date(t).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
-var stTxt = () => ({ off: 'Сховище не вказано', load: 'Завантаження…', sync: 'Зберігаю…', ok: 'Збережено', err: 'Помилка зв’язку', ro: 'Лише перегляд', notok: 'Не збережено: потрібен токен' })[S.st];
+var stTxt = () => S.st === 'err' && S.err ? 'Помилка ' + S.err : ({ off: 'Сховище не вказано', load: 'Завантаження…', sync: 'Зберігаю…', ok: 'Збережено', err: 'Помилка', ro: 'Лише перегляд', notok: 'Не збережено: потрібен токен' })[S.st];
 function ui() { var e = document.getElementById('st'); if (e) e.textContent = stTxt(); }
 var br = () => C.repo === AUTO ? 'data' : '';
 var canW = () => !!(C.tok && C.repo);
@@ -50,7 +50,7 @@ var pend = () => Object.keys(P.g).length || P.del.length;
 async function flush() {
   if (!canW() || busy || !pend()) return;
   busy = true; S.st = 'sync'; ui();
-  var snap = {}, sd = P.del.slice(), ok = false;
+  var snap = {}, sd = P.del.slice(), ok = false; S.err = '';
   Object.keys(P.g).forEach(id => { snap[id] = P.g[id].updated; });
   try {
     for (var t = 0; t < 3 && !ok; t++) {
@@ -61,9 +61,9 @@ async function flush() {
         Object.keys(snap).forEach(id => { if (P.g[id] && P.g[id].updated === snap[id]) delete P.g[id]; });
         P.del = P.del.filter(id => sd.indexOf(id) < 0); sv('rp_pend', P);
         list.forEach(R.refresh); S.games = list; ok = true;
-      } else if (r.status !== 409 && r.status !== 422) throw new Error(r.status);
+      } else { S.err = String(r.status); if (r.status !== 409 && r.status !== 422) throw new Error(r.status); }
     }
-  } catch (e) {}
+  } catch (e) { if (!S.err) S.err = String(e.message || e); }
   S.st = ok ? 'ok' : 'err'; busy = false; ui();
   if (ok && pend()) flush();
 }
