@@ -148,6 +148,7 @@ function addPl(name) {
 function ensurePl() { S.games.forEach(g => { var ids = gids(g); g.names.forEach((n, i) => { if (!S.players.some(x => x.id === ids[i])) savePl({ id: ids[i], name: n }); }); }); }
 function renamePl(p, nn) { p.name = nn; fixNames(); savePl(p); }
 async function boot() {
+  localStorage.removeItem('rp_zem');
   if (!canW()) {
     var m = {};
     (L0.games || []).concat(Object.keys(P.g).map(id => P.g[id])).forEach(g => { if (!m[g.id] || (g.updated || 0) >= (m[g.id].updated || 0)) m[g.id] = g; });
@@ -277,7 +278,7 @@ function sett() {
   return bar('Налаштування') + '<div class="card"><label class="sw" style="margin:0"><span>Пасхалка в золотому раунді</span><input type="checkbox" id="egg"' + (S.set.egg !== false ? ' checked' : '') + '></label>' +
     '<label class="sw"><span>Звук фанфар</span><input type="checkbox" id="snd"' + (S.set.snd !== false ? ' checked' : '') + '></label>' +
     '<label class="sw"><span>Нагадування про Земфіру</span><input type="checkbox" id="zem"' + (S.set.zem !== false ? ' checked' : '') + '></label>' +
-    '<div class="sw"><span>Фото для нагадування</span>' + (ld('rp_zem') ? '<img class="th" src="' + ld('rp_zem') + '" alt=""><button class="rm" data-a="zrm">✕</button>' : '') + '<label class="chip pk">Обрати<input type="file" accept="image/*" id="zf" hidden></label></div></div>' +
+    '</div>' +
     '<div class="card"><label class="lb">Приватне сховище GitHub' + (C.tok ? ' · токен є' : '') + '</label><input class="in" type="password" data-c="tok" placeholder="' + (C.tok ? 'токен збережено' : 'токен github_pat_…') + '" autocomplete="off">' +
     '<input class="in" data-c="repo" value="' + esc(S.cd.repo) + '" placeholder="логін/репозиторій" autocapitalize="off">' + (S.msg ? '<p class="mut">' + esc(S.msg) + '</p>' : '') + '</div>' +
     btn('conn', C.tok ? 'Оновити підключення' : 'Підключити') + (C.tok ? btn('disc', 'Видалити токен з пристрою', 'sec') : '') +
@@ -327,21 +328,13 @@ function winv(g) {
   return '<div class="mask win"><canvas id="cf"></canvas><div class="wc"><div class="tr0">🏆</div><div class="wl">Переможець</div><div class="wn">' + Ld.map(p => esc(g.names[p])).join(' і ') + '</div><div class="ws">' +
     ord.map((p, k) => '<div><span>' + (k + 1) + '. ' + esc(g.names[p]) + '</span><b>' + T[p] + '</b></div>').join('') + '</div>' + btn('winx', 'Готово') + '</div></div>';
 }
-function zemPhoto(f) {
-  if (!f) return;
-  var im = new Image(), u = URL.createObjectURL(f);
-  im.onload = function () {
-    var k = Math.min(1, 420 / Math.max(im.width, im.height)), c = document.createElement('canvas');
-    c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
-    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-    sv('rp_zem', c.toDataURL('image/jpeg', .82)); URL.revokeObjectURL(u); render();
-  };
-  im.src = u;
-}
 function zemv() {
-  var ph = ld('rp_zem');
-  return '<div class="mask c"><div class="eg">' + (ph ? '<img class="cov" src="' + ph + '" alt="">' :
-    '<svg class="cov vin" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#111"/><circle cx="50" cy="50" r="38" fill="none" stroke="#333" stroke-width="2"/><circle cx="50" cy="50" r="28" fill="none" stroke="#333" stroke-width="2"/><circle cx="50" cy="50" r="16" fill="#1d6048"/><circle cx="50" cy="50" r="3" fill="#111"/></svg>') +
+  return '<div class="mask c"><div class="eg"><div class="vwrap"><svg viewBox="0 0 100 100"><defs><path id="za" d="M 15 50 A 35 35 0 0 1 85 50"/></defs>' +
+    '<circle cx="50" cy="50" r="49" fill="#0d0d0d"/><circle cx="50" cy="50" r="45" fill="none" stroke="#262626" stroke-width=".8"/><circle cx="50" cy="50" r="41" fill="none" stroke="#262626" stroke-width=".8"/>' +
+    '<circle cx="50" cy="50" r="37" fill="none" stroke="#262626" stroke-width=".8"/><circle cx="50" cy="50" r="26" fill="none" stroke="#262626" stroke-width=".8"/><circle cx="50" cy="50" r="22" fill="none" stroke="#262626" stroke-width=".8"/>' +
+    '<path d="M 12 38 A 40 40 0 0 1 38 12" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="3" stroke-linecap="round"/><path d="M 88 62 A 40 40 0 0 1 62 88" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="3" stroke-linecap="round"/>' +
+    '<text font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="8.6" font-weight="300" letter-spacing="3.2" fill="#f1d47a"><textPath href="#za" startOffset="50%" text-anchor="middle">ЗЕМФИРА</textPath></text>' +
+    '<circle cx="50" cy="50" r="15" fill="#1d6048"/><circle cx="50" cy="50" r="15" fill="none" stroke="#f1d47a" stroke-width=".8"/><circle cx="50" cy="50" r="2" fill="#0d0d0d"/></svg></div>' +
     '<p>Увімкни Земфіру</p>' + btn('zx', 'Вже грає') + '</div></div>';
 }
 function eggv(key) {
@@ -394,7 +387,6 @@ function act(a, d) {
     case 'fin': if (!g.finished) { g.finished = true; g.finishedAt = Date.now(); dirty(g); } S.win = true; fanfare(); break;
     case 'winx': S.win = false; S.view = 'hist'; S.pg = 0; break;
     case 'zx': S.zem = false; break;
-    case 'zrm': localStorage.removeItem('rp_zem'); break;
     case 'egx': S.egd[d.k] = 1; break;
     case 'edit':
       var i = +d.i, r = g.rounds[i];
@@ -418,7 +410,6 @@ function act(a, d) {
 $.addEventListener('click', function (e) { var t = e.target.closest('[data-a]'); if (t) act(t.dataset.a, t.dataset); });
 $.addEventListener('change', function (e) {
   var t = e.target;
-  if (t.id === 'zf') { zemPhoto(t.files[0]); return; }
   if (t.dataset.p == null || !S.draft) return;
   var i = +t.dataset.p;
   if (t.value === '+') { var nn = (prompt('Ім’я нового гравця') || '').trim(), id = nn && addPl(nn); if (id) S.draft.pids[i] = id; }
