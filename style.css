@@ -51,3 +51,16 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .gh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.badge{font-size:12px;font-weight:600;padding:3px 10px;border-radius:99px;background:var(--soft)}.badge.live{background:var(--accs)}
 .pl{display:flex;justify-content:space-between;gap:6px;margin:8px 0;font-size:14px}.pl span{flex:1;text-align:center}
 .s5{grid-template-columns:1.5fr repeat(4,1fr)}.s5>div{border:0}.s5>div:first-child{text-align:left;padding-left:8px}
+.rt{font-size:12px;color:var(--mut);white-space:nowrap}
+.gv .tbl{flex:1;min-height:0;display:flex;flex-direction:column}
+.gv .row{flex:1;min-height:0;font-size:12px}.gv .row.head{flex:none;min-height:42px;font-size:13px}
+.gv .rl{width:20px;height:20px;line-height:20px;font-size:11px}.gv .row>b{font-size:14px}.gv .row>.m{font-size:12px}
+.bot{flex:none;padding:10px 0 calc(10px + env(safe-area-inset-bottom))}.dn{font-size:13px;color:var(--mut);margin-bottom:6px;text-align:center}.bot .btn{margin:0}
+.sh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.sh h2{margin:0}.tx{border:0;background:none;color:var(--felt2);font:600 16px var(--f);padding:0}
+.cap2{font-size:13px;color:var(--mut);margin:2px 0 8px}.tr .n{margin:8px 0 4px;font-weight:600}
+#app{height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+.hero{margin:6px 0 12px;padding:clamp(14px,3.5dvh,34px) 20px clamp(12px,2.5dvh,28px)}.logo{width:64px;height:64px;line-height:64px;font-size:38px;margin-bottom:8px}.btn{margin:8px 0}.bot .btn{margin:0}
+.fill{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;overflow:hidden}.fill .tbl{flex:none}
+.card.h{display:flex;align-items:center;gap:10px;margin:0;padding:10px 12px}.hm{flex:1;min-width:0}.sm{font-size:13px;color:var(--mut)}.pl{margin:4px 0 0;font-size:13px}.pl span{text-align:left}
+.pager{flex:none;display:flex;justify-content:center;align-items:center;gap:18px;padding:10px 0 calc(6px + env(safe-area-inset-bottom))}.ic:disabled{opacity:.3}
+.nrow{display:flex;gap:8px}.nrow .in{min-width:0}

@@ -1,26 +1,123 @@
 (function () {
 'use strict';
-var R = window.RP, K = 'rp_v1', $ = document.getElementById('app');
-var S = { games: [], set: { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null, unl: null, edit: null };
-try { var d0 = JSON.parse(localStorage.getItem(K) || 'null'); if (d0) { S.games = d0.games || []; S.set = d0.set || S.set; } } catch (e) {}
-S.games.forEach(function (g) {
-  if (!g.finished && !g.rounds.some(function (r) { return r.type !== 'N'; })) ['B', 'T', 'Z'].forEach(function (t) { R.addSpecial(g, t); });
-  R.refresh(g);
-});
-function save() { try { localStorage.setItem(K, JSON.stringify({ games: S.games, set: S.set })); } catch (e) { alert('Не вдалося зберегти дані'); } }
-if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+var R = window.RP, $ = document.getElementById('app');
+function ld(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+function sv(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+var AUTO = (function () { var p = location.pathname.split('/')[1]; return /\.github\.io$/.test(location.hostname) && p ? location.hostname.split('.')[0] + '/' + p : ''; })();
+var C = ld('rp_cfg') || {}; C.repo = C.repo || AUTO;
+var P = ld('rp_pend') || { g: {}, del: [] }, L0 = ld('rp_v1') || {};
+var S = { games: [], set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
+  unl: null, edit: null, sh: false, st: C.repo ? 'load' : 'off', cd: { tok: '', repo: C.repo || '' }, msg: '', pg: 0 };
+var tm = null, busy = false, sha = null, prev = '';
 var esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 var G = () => S.games.find(g => g.id === S.gid);
 var fdate = t => new Date(t).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
-function btn(a, t, c, dis, ex) { return '<button class="btn ' + (c || '') + '" data-a="' + a + '"' + (dis ? ' disabled' : '') + (ex || '') + '>' + t + '</button>'; }
-function bar(t) { return '<div class="bar"><button class="ic" data-a="menu">‹</button><h1>' + t + '</h1></div>'; }
+var stTxt = () => ({ off: 'Сховище не вказано', load: 'Завантаження…', sync: 'Зберігаю…', ok: 'Збережено', err: 'Помилка зв’язку', ro: 'Лише перегляд', notok: 'Не збережено: потрібен токен' })[S.st];
+function ui() { var e = document.getElementById('st'); if (e) e.textContent = stTxt(); }
+var br = () => C.repo === AUTO ? 'data' : '';
+var canW = () => !!(C.tok && C.repo);
 
+/* ---------- сховище GitHub ---------- */
+var b64d = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g, '')), c => c.charCodeAt(0)));
+function b64e(s) { var u = new TextEncoder().encode(s), o = '', i; for (i = 0; i < u.length; i += 8192) o += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(o); }
+function api(m, body) {
+  var b = br(), h = { Accept: 'application/vnd.github+json' };
+  if (C.tok) h.Authorization = 'Bearer ' + C.tok;
+  if (body && b) body.branch = b;
+  return fetch('https://api.github.com/repos/' + C.repo + '/contents/games.json' + (m === 'GET' ? '?t=' + Date.now() + (b ? '&ref=' + b : '') : ''),
+    { method: m, cache: 'no-store', headers: h, body: body ? JSON.stringify(body) : undefined });
+}
+async function pull() {
+  var r = await api('GET');
+  if (r.status === 403 || r.status === 429) {
+    var rw = await fetch('https://raw.githubusercontent.com/' + C.repo + '/' + (br() || 'main') + '/games.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!rw.ok) throw new Error(r.status);
+    return (await rw.json()).games || [];
+  }
+  if (r.status === 404) { sha = null; return []; }
+  if (!r.ok) throw new Error(r.status);
+  var j = await r.json(); sha = j.sha; return JSON.parse(b64d(j.content)).games || [];
+}
+function applyPend(list) {
+  list = list.filter(g => P.del.indexOf(g.id) < 0);
+  Object.keys(P.g).forEach(function (id) {
+    var d = P.g[id], i = list.findIndex(g => g.id === id);
+    if (i < 0) list.push(d); else if ((d.updated || 0) >= (list[i].updated || 0)) list[i] = d;
+  });
+  return list;
+}
+var pend = () => Object.keys(P.g).length || P.del.length;
+async function flush() {
+  if (!canW() || busy || !pend()) return;
+  busy = true; S.st = 'sync'; ui();
+  var snap = {}, sd = P.del.slice(), ok = false;
+  Object.keys(P.g).forEach(id => { snap[id] = P.g[id].updated; });
+  try {
+    for (var t = 0; t < 3 && !ok; t++) {
+      var list = applyPend(await pull());
+      var r = await api('PUT', { message: 'sync', content: b64e(JSON.stringify({ games: list })), sha: sha || undefined });
+      if (r.ok) {
+        sha = (await r.json()).content.sha;
+        Object.keys(snap).forEach(id => { if (P.g[id] && P.g[id].updated === snap[id]) delete P.g[id]; });
+        P.del = P.del.filter(id => sd.indexOf(id) < 0); sv('rp_pend', P);
+        list.forEach(R.refresh); S.games = list; ok = true;
+      } else if (r.status !== 409 && r.status !== 422) throw new Error(r.status);
+    }
+  } catch (e) {}
+  S.st = ok ? 'ok' : 'err'; busy = false; ui();
+  if (ok && pend()) flush();
+}
+function queue(ms) {
+  sv('rp_pend', P);
+  if (!canW()) { S.st = 'notok'; ui(); return; }
+  S.st = 'sync'; ui(); clearTimeout(tm); tm = setTimeout(flush, ms);
+}
+function dirty(g) { g.updated = Date.now(); P.g[g.id] = g; queue(600); }
+function drop(id) {
+  if (!confirm('Видалити цю гру? Дію не можна скасувати.')) return false;
+  S.games = S.games.filter(x => x.id !== id); delete P.g[id]; P.del.push(id); queue(300);
+  return true;
+}
+async function refresh() {
+  if (!C.repo) return; S.st = 'load'; ui();
+  try { S.games = applyPend(await pull()); S.games.forEach(R.refresh); S.st = pend() && !canW() ? 'notok' : (canW() ? 'ok' : 'ro'); } catch (e) { S.st = 'err'; }
+  render();
+}
+async function conn() {
+  var tok = S.cd.tok.trim() || C.tok, repo = S.cd.repo.trim() || AUTO;
+  if (!tok || !/^[^\/\s]+\/[^\/\s]+$/.test(repo)) { S.msg = 'Вкажіть токен і репозиторій (логін/назва)'; render(); return; }
+  S.msg = 'Перевіряю…'; render();
+  try {
+    var rr = await fetch('https://api.github.com/repos/' + repo, { headers: { Authorization: 'Bearer ' + tok } });
+    if (!rr.ok) throw new Error('repo');
+    var pm = (await rr.json()).permissions;
+    if (!pm || !pm.push) { S.msg = 'Токен без права запису (потрібно Contents: Read and write)'; render(); return; }
+    C = { tok: tok, repo: repo }; sv('rp_cfg', C); S.cd.tok = ''; sha = null; S.msg = 'Підключено';
+    try { S.games = applyPend(await pull()); S.games.forEach(R.refresh); } catch (e) {}
+    S.st = 'ok'; flush();
+  } catch (e) { S.msg = 'Не вдалося підключитись. Перевірте токен і репозиторій.'; }
+  render();
+}
+async function boot() {
+  if (L0.games && L0.games.length) { L0.games.forEach(g => { P.g[g.id] = g; }); sv('rp_pend', P); }
+  localStorage.removeItem('rp_v1');
+  S.games = Object.keys(P.g).map(id => P.g[id]); S.games.forEach(R.refresh); render();
+  if (!C.repo) return;
+  try { S.games = applyPend(await pull()); S.st = pend() && !canW() ? 'notok' : (canW() ? 'ok' : 'ro'); } catch (e) { S.st = 'err'; }
+  S.games.forEach(R.refresh); render(); flush();
+}
+window.addEventListener('online', flush);
+document.addEventListener('visibilitychange', function () { if (document.hidden) { clearTimeout(tm); flush(); } else if (!busy && !pend()) refresh(); });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+/* ---------- інтерфейс ---------- */
+function btn(a, t, c, dis, ex) { return '<button class="btn ' + (c || '') + '" data-a="' + a + '"' + (dis ? ' disabled' : '') + (ex || '') + '>' + t + '</button>'; }
+function bar(t, right) { return '<div class="bar"><button class="ic" data-a="menu">‹</button><h1>' + t + '</h1>' + (right || '') + '</div>'; }
 function menu() {
   var un = S.games.filter(g => !g.finished).length;
-  return '<div class="hero"><div class="logo">♠</div><h1>Розписний покер</h1></div>' + btn('new', 'Нова гра') +
-    btn('cont', 'Продовжити гру' + (un ? ' (' + un + ')' : ''), '', !un) + btn('hist', 'Історія ігор', 'sec') +
-    btn('stat', 'Статистика', 'sec') + btn('sett', 'Налаштування', 'sec');
+  return '<div class="hero"><div class="logo">♠</div><h1>Розписний покер</h1></div>' + btn('new', 'Нова гра') + btn('cont', 'Продовжити гру' + (un ? ' (' + un + ')' : ''), '', !un) +
+    btn('hist', 'Історія ігор', 'sec') + btn('stat', 'Статистика', 'sec') + btn('sett', 'Налаштування', 'sec') +
+    '<p class="mut" style="text-align:center"><span id="st">' + stTxt() + '</span>' + (!C.tok ? '<br>Щоб зберігати ігри, додайте токен у налаштуваннях (один раз на пристрої).' : '') + '</p>';
 }
 function newv() {
   var d = S.draft;
@@ -36,13 +133,23 @@ function row(g, k, run) {
   g.names.forEach(function (_, p) {
     var b = r.bids[p], t = r.tricks[p], sm = '', big = '';
     if (r.done) { big = run[p]; sm = (R.hasBids(r) ? b + '/' : '') + t; }
-    else if (b !== null || t !== null) {
-      var bs = b === null ? '-' : (g.hidden ? '✓' : b), ts = t === null ? '-' : (g.hidden ? '✓' : t);
-      sm = (R.hasBids(r) ? bs + '/' : '') + ts;
-    }
+    else if (b !== null) sm = (R.hasBids(r) ? (g.hidden ? '✓' : b) + '/' : '') + '-';
     c += '<div class="m' + (on && p === dl ? ' dl' : '') + '">' + sm + '</div><b class="' + (big < 0 ? 'neg' : '') + '">' + big + '</b>';
   });
   return c + '</div>';
+}
+function info(r, ph) {
+  return r.type === 'T' ? (ph === 'bid' ? 'Темна: ставки до роздачі' : 'Тепер роздайте карти') : r.type === 'Z' ? 'Золота: +10 за взятку' : r.type === 'B' ? 'Безкозирка' : '';
+}
+function gamev(g) {
+  var ph = R.phase(g), Ld = R.leaders(g), i = g.cur, run = g.names.map(() => 0), r = g.rounds[i];
+  var t = '<div class="bar"><button class="ic" data-a="menu">‹</button><h1>' + (r ? 'Раунд ' + (i + 1) + ' · ' + r.cards + ' карт' : 'Підсумок') + '</h1><span class="rt" id="st">' + stTxt() + '</span></div>' +
+    '<div class="tbl"><div class="row head"><div></div>' + g.names.map((n, p) => '<div class="nm' + (Ld.indexOf(p) > -1 ? ' lead' : '') + '">' + (r && p === R.dealer(g, i) ? '● ' : '') + esc(n) + '</div>').join('') + '</div>';
+  g.rounds.forEach(function (x, k) { if (x.done) g.names.forEach(function (_, p) { run[p] += R.roundScore(x, p); }); t += row(g, k, run); });
+  t += '</div><footer class="bot">';
+  if (ph === 'end') t += '<div class="dn">Переможець: <b>' + Ld.map(p => esc(g.names[p])).join(', ') + '</b></div>' + btn('fin', 'Завершити гру');
+  else t += '<div class="dn">Роздає: <b>' + esc(g.names[R.dealer(g, i)]) + '</b>' + (info(r, ph) ? ' · ' + info(r, ph) : '') + '</div>' + btn('sh', ph === 'bid' ? 'Ставка · ' + esc(g.names[R.actor(g)]) : 'Ввести взятки');
+  return t + '</footer>' + (S.sh && ph !== 'end' && !S.edit ? sheet(g, ph) : '');
 }
 function trEff(g) {
   var r = g.rounds[g.cur], k = g.id + '|' + g.cur;
@@ -51,44 +158,26 @@ function trEff(g) {
   if (nl === 1) { var ai = v.indexOf(null), q = r.cards - v.reduce((s, x) => s + (x || 0), 0); if (q >= 0) { ev[ai] = q; auto = ai; } }
   return { v: v, ev: ev, auto: auto, ok: ev.every(x => x !== null) && ev.reduce((s, x) => s + x, 0) === r.cards };
 }
-function tricksPanel(g, r, tags) {
-  var e = trEff(g), h = '<div class="panel">' + tags + '<h2>Скільки взяток узяв кожен</h2>';
+function tricksBody(g, r) {
+  var e = trEff(g), h = '';
   g.names.forEach(function (n, p) {
     var o = 0; e.v.forEach(function (x, q) { if (q !== p) o += x || 0; });
-    h += '<div class="tr"><span>' + esc(n) + '</span><div class="chs">';
+    h += '<div class="tr"><div class="n">' + esc(n) + '</div><div class="chs">';
     for (var k = 0; k <= r.cards; k++) h += '<button class="' + (e.ev[p] === k ? (e.auto === p ? 'on auto' : 'on') : '') + '" data-a="tpick" data-p="' + p + '" data-v="' + k + '"' + (k > r.cards - o ? ' disabled' : '') + '>' + k + '</button>';
     h += '</div></div>';
   });
   if (e.ev.every(x => x !== null) && !e.ok) h += '<p class="err">Сума взяток має бути ' + r.cards + '</p>';
-  return h + btn('tdone', 'Готово', '', !e.ok) + '</div>';
+  return h + btn('tdone', 'Готово', '', !e.ok, ' style="margin-top:14px"');
 }
-function panel(g, ph) {
-  if (ph === 'end') {
-    var L = R.leaders(g);
-    return '<div class="panel"><h2>Усі раунди зіграно</h2><p>Переможець: <b>' + L.map(p => esc(g.names[p])).join(', ') + '</b></p>' + btn('fin', 'Завершити гру') + '</div>';
-  }
-  var r = g.rounds[g.cur], p = R.actor(g), key = g.cur + '|' + ph + '|' + p;
-  var info = r.type === 'T' ? (ph === 'bid' ? 'Темна: ставки до роздачі карт' : 'Тепер роздайте карти й грайте') :
-    r.type === 'Z' ? 'Золота: кожна взятка +10' : r.type === 'B' ? 'Безкозирка' : '';
-  var tags = '<div class="tags"><span class="tag dt">Роздає: ' + esc(g.names[R.dealer(g, g.cur)]) + '</span>' + (info ? '<span class="tag">' + info + '</span>' : '') + '</div>';
-  if (ph === 'tricks' && g.hidden && R.hasBids(r) && S.tk !== g.id + '|' + g.cur)
-    return '<div class="panel">' + tags + '<h2>Усі замовили</h2><p class="mut">Грайте раунд. Ставки відкриються після введення взяток.</p>' + btn('rvgo', 'Ввести взятки') + '</div>';
-  if (ph === 'tricks') return tricksPanel(g, r, tags);
-  var h = '<div class="panel">' + tags + '<h2>' + (ph === 'bid' ? 'Ставку оголошує' : 'Взятки вводить') + ': ' + esc(g.names[p]) + '</h2>';
-  if (g.hidden && S.unl !== key) return h + '<p class="mut">Передайте телефон цьому гравцю. Інші не дивляться.</p>' + btn('unl', 'Я готовий(а)') + '</div>';
+function sheet(g, ph) {
+  var r = g.rounds[g.cur], p = R.actor(g), key = g.cur + '|' + ph + '|' + p, inf = info(r, ph);
+  var h = '<div class="mask"><div class="sheet"><div class="sh"><h2>' + (ph === 'bid' ? 'Ставка · ' + esc(g.names[p]) : 'Скільки взяток узяв кожен') + '</h2><button class="tx" data-a="shx">Закрити</button></div>' +
+    '<div class="cap2">Роздає: ' + esc(g.names[R.dealer(g, g.cur)]) + (inf ? ' · ' + inf : '') + '</div>';
+  if (ph === 'tricks') return h + tricksBody(g, r) + '</div></div>';
+  if (g.hidden && S.unl !== key) return h + '<p class="mut">Передайте телефон гравцю. Інші не дивляться.</p>' + btn('unl', 'Я готовий(а)') + '</div></div>';
   var o = '';
   for (var v = 0; v <= r.cards; v++) o += '<button data-a="pick" data-v="' + v + '"' + (R.can(g, ph, p, v) ? '' : ' disabled') + '>' + v + '</button>';
-  return h + '<div class="pad">' + o + '</div></div>';
-}
-function gamev(g) {
-  var ph = R.phase(g), L = R.leaders(g), i = g.cur, run = g.names.map(() => 0);
-  var t = '<div class="bar"><button class="ic" data-a="menu">‹</button><h1>' + (i < g.rounds.length ? 'Раунд ' + (i + 1) + '/' + g.rounds.length + ' · ' + g.rounds[i].cards + ' карт' : 'Підсумок') +
-    '</h1></div><div class="scr"><div class="tbl"><div class="row head"><div></div>' + g.names.map((n, p) => '<div class="nm' + (L.indexOf(p) > -1 ? ' lead' : '') + '">' + (i < g.rounds.length && p === R.dealer(g, i) ? '● ' : '') + esc(n) + '</div>').join('') + '</div>';
-  g.rounds.forEach(function (r, k) {
-    if (r.done) g.names.forEach(function (_, p) { run[p] += R.roundScore(r, p); });
-    t += row(g, k, run);
-  });
-  return t + '</div></div>' + panel(g, ph);
+  return h + '<div class="pad">' + o + '</div></div></div>';
 }
 function stp(k, p, v) {
   var a = ' data-a="stp" data-k="' + k + '" data-p="' + p + '" data-d=';
@@ -96,73 +185,74 @@ function stp(k, p, v) {
 }
 function modal(g) {
   var e = S.edit, r = g.rounds[e.i], z = !R.hasBids(r);
-  return '<div class="mask"><div class="sheet"><h2>Раунд ' + (e.i + 1) + ' · ' + R.label(r) + ' (' + r.cards + ' карт)</h2><div class="st h"><span></span><span>' + (z ? '' : 'Ставка') + '</span><span>Взятки</span></div>' +
+  return '<div class="mask"><div class="sheet"><div class="sh"><h2>Раунд ' + (e.i + 1) + ' · ' + R.label(r) + ' (' + r.cards + ' карт)</h2></div><div class="st h"><span></span><span>' + (z ? '' : 'Ставка') + '</span><span>Взятки</span></div>' +
     R.order(g, e.i).map(p => '<div class="st"><b>' + esc(g.names[p]) + '</b>' + (z ? '<span></span>' : stp('bids', p, e.bids[p])) + stp('tricks', p, e.tricks[p]) + '</div>').join('') +
     (e.err ? '<p class="err">' + e.err + '</p>' : '') + '<div class="two">' + btn('ecancel', 'Скасувати', 'sec') + btn('esave', 'Зберегти') + '</div></div></div>';
 }
+function pager(n, ps) {
+  var pages = Math.max(1, Math.ceil(n / ps)); S.pg = Math.max(0, Math.min(S.pg, pages - 1));
+  return pages > 1 ? '<div class="pager"><button class="ic" data-a="pg" data-d="-1"' + (S.pg ? '' : ' disabled') + '>‹</button><span>' + (S.pg + 1) + ' / ' + pages + '</span><button class="ic" data-a="pg" data-d="1"' + (S.pg < pages - 1 ? '' : ' disabled') + '>›</button></div>' : '';
+}
 function hist() {
-  var l = S.games.slice().sort((a, b) => b.created - a.created);
-  return bar('Історія ігор') + (l.length ? l.map(g => {
-    var T = R.totals(g), L = R.leaders(g);
-    return '<div class="card"><div class="gh"><b>' + fdate(g.created) + '</b><span class="badge' + (g.finished ? '' : ' live') + '">' + (g.finished ? 'Завершена' : 'Триває · раунд ' + Math.min(g.cur + 1, g.rounds.length)) + '</span></div>' +
-      (g.finished ? '<div>🏆 ' + L.map(p => esc(g.names[p])).join(', ') + '</div>' : '') +
-      '<div class="pl">' + g.names.map((x, p) => '<span>' + esc(x) + '<br><b>' + T[p] + '</b></span>').join('') + '</div><div class="two">' +
-      btn('open', 'Відкрити', 'sec', 0, ' data-id="' + g.id + '"') + btn('rm', 'Видалити', 'sec', 0, ' data-id="' + g.id + '"') + '</div></div>';
-  }).join('') : '<p class="mut">Ігор ще немає. Створіть першу в головному меню.</p>');
+  var l = S.games.slice().sort((a, b) => b.created - a.created), ps = 5, pg = pager(l.length, ps);
+  return bar('Історія ігор', '<button class="ic" data-a="ref">↻</button>') + '<div class="fill">' + (l.length ? l.slice(S.pg * ps, S.pg * ps + ps).map(g => {
+    var T = R.totals(g), Ld = R.leaders(g);
+    return '<div class="card h" data-a="open" data-id="' + g.id + '"><div class="hm"><div class="gh"><b>' + fdate(g.created) + '</b><span class="badge' + (g.finished ? '' : ' live') + '">' + (g.finished ? 'Завершена' : 'Триває · раунд ' + Math.min(g.cur + 1, g.rounds.length)) + '</span></div>' +
+      (g.finished ? '<div class="sm">🏆 ' + Ld.map(p => esc(g.names[p])).join(', ') + '</div>' : '') +
+      '<div class="pl">' + g.names.map((x, p) => '<span>' + esc(x) + ' <b>' + T[p] + '</b></span>').join('') + '</div></div><button class="ic" data-a="rm" data-id="' + g.id + '">✕</button></div>';
+  }).join('') : '<p class="mut">Ігор ще немає. Створіть першу в головному меню.</p>') + '</div>' + pg;
 }
 function statv() {
-  var s = R.stats(S.games);
-  return bar('Статистика') + (s.length ? '<div class="tbl"><div class="row s5 head"><div>Гравець</div><div>Ігор</div><div>Перем.</div><div>Сер.</div><div>Макс.</div></div>' +
-    s.map(x => '<div class="row s5"><div>' + esc(x.name) + '</div><div>' + x.games + '</div><div><b>' + x.wins + '</b></div><div>' + x.avg + '</div><div>' + x.best + '</div></div>').join('') + '</div>' :
-    '<p class="mut">Статистика з’явиться після першої завершеної гри.</p>');
+  var s = R.stats(S.games), ps = 8, pg = pager(s.length, ps);
+  return bar('Статистика') + '<div class="fill">' + (s.length ? '<div class="tbl"><div class="row s5 head"><div>Гравець</div><div>Ігор</div><div>Перем.</div><div>Сер.</div><div>Макс.</div></div>' +
+    s.slice(S.pg * ps, S.pg * ps + ps).map(x => '<div class="row s5"><div>' + esc(x.name) + '</div><div>' + x.games + '</div><div><b>' + x.wins + '</b></div><div>' + x.avg + '</div><div>' + x.best + '</div></div>').join('') + '</div>' :
+    '<p class="mut">Статистика з’явиться після першої завершеної гри.</p>') + '</div>' + pg;
 }
 function sett() {
-  return bar('Налаштування') + '<div class="card"><label class="lb">Імена гравців за замовчуванням</label>' +
-    S.set.names.map((n, i) => '<input class="in" data-s="' + i + '" value="' + esc(n) + '" maxlength="16">').join('') + '</div>' +
-    btn('clear', 'Видалити всі дані', 'sec') + '<p class="mut">Дані зберігаються лише на цьому пристрої.</p>';
+  return bar('Налаштування') + '<div class="card"><label class="lb">Імена гравців за замовчуванням</label><div class="nrow">' +
+    S.set.names.map((n, i) => '<input class="in" data-s="' + i + '" value="' + esc(n) + '" maxlength="16">').join('') + '</div></div>' +
+    '<div class="card"><label class="lb">Збереження в GitHub' + (C.tok ? ' · токен є' : '') + '</label><input class="in" type="password" data-c="tok" placeholder="' + (C.tok ? 'токен збережено' : 'токен github_pat_…') + '" autocomplete="off">' +
+    '<input class="in" data-c="repo" value="' + esc(S.cd.repo) + '" placeholder="логін/репозиторій" autocapitalize="off">' + (S.msg ? '<p class="mut">' + esc(S.msg) + '</p>' : '') + '</div>' +
+    btn('conn', C.tok ? 'Оновити підключення' : 'Підключити') + (C.tok ? btn('disc', 'Видалити токен з пристрою', 'sec') : '') +
+    '<p class="mut" style="font-size:13px">Токен потрібен лише для запису, зберігається тільки на цьому пристрої. Історію можна переглядати й без нього.</p>';
 }
-var prev = '';
 function render() {
   var g = G(), v = S.view, h;
   if (v === 'new') h = newv(); else if (v === 'game' && g) h = gamev(g); else if (v === 'hist') h = hist();
   else if (v === 'stat') h = statv(); else if (v === 'sett') h = sett(); else h = menu();
-  var os = $.querySelector('.scr'), st = os && prev === v ? os.scrollTop : 0;
   $.className = v === 'game' && g ? 'gv' : '';
   $.innerHTML = h + (S.edit && g ? modal(g) : '');
-  var ns = $.querySelector('.scr'); if (ns) ns.scrollTop = st;
   if (prev !== v) { window.scrollTo(0, 0); prev = v; }
-  if (S.sc && v === 'game' && !S.edit) { var cu = $.querySelector('.cur'); if (cu) cu.scrollIntoView({ block: 'center' }); S.sc = false; }
 }
-function open(id) { S.sc = true; S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; }
-function drop(id) { if (confirm('Видалити цю гру? Дію не можна скасувати.')) { S.games = S.games.filter(x => x.id !== id); return true; } return false; }
+function open(id) { var g = S.games.find(x => x.id === id); S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; S.tr = null; S.sh = !!g && R.phase(g) === 'bid'; }
 function act(a, d) {
-  var g = G(), touch = false;
+  var g = G();
   switch (a) {
     case 'menu': S.view = 'menu'; S.edit = null; break;
     case 'new': S.draft = { names: S.set.names.slice(), first: 0, hidden: false }; S.view = 'new'; break;
     case 'first': S.draft.first = +d.i; break;
     case 'start':
       var ng = R.newGame(S.draft.names.map((x, i) => x.trim() || 'Гравець ' + (i + 1)), S.draft.first, S.draft.hidden);
-      R.refresh(ng); S.games.push(ng); open(ng.id); break;
+      R.refresh(ng); S.games.push(ng); open(ng.id); dirty(ng); break;
     case 'cont':
       var u = S.games.filter(x => !x.finished).sort((x, y) => (y.updated || 0) - (x.updated || 0))[0];
       if (u) open(u.id); break;
-    case 'hist': case 'stat': case 'sett': S.view = a; break;
+    case 'hist': case 'stat': case 'sett': S.view = a; S.pg = 0; break;
+    case 'pg': S.pg += +d.d; break;
+    case 'ref': refresh(); break;
     case 'open': open(d.id); break;
     case 'rm': drop(d.id); break;
-    case 'del': if (drop(S.gid)) S.view = 'hist'; break;
-    case 'clear': if (confirm('Видалити всі ігри та статистику?')) { S.games = []; S.view = 'menu'; } break;
-    case 'rvgo': S.tk = g.id + '|' + g.cur; S.sc = true; break;
+    case 'conn': conn(); return;
+    case 'disc': if (confirm('Видалити токен з цього пристрою?')) { C = { repo: C.repo }; sv('rp_cfg', C); S.st = 'ro'; S.msg = ''; } break;
+    case 'sh': S.sh = true; break;
+    case 'shx': S.sh = false; break;
     case 'unl': S.unl = g.cur + '|' + R.phase(g) + '|' + R.actor(g); break;
-    case 'pick':
-      var ph = R.phase(g), p = R.actor(g), v = +d.v;
-      if (ph === 'bid') R.setBid(g, p, v); else R.setTricks(g, p, v);
-      if (R.phase(g) === 'fix') { alert('Сума взяток має дорівнювати ' + g.rounds[g.cur].cards + '. Введіть взятки ще раз.'); R.resetTricks(g); }
-      S.sc = true; touch = true; break;
+    case 'pick': R.setBid(g, R.actor(g), +d.v); S.sh = R.phase(g) === 'bid'; dirty(g); break;
     case 'tpick': var te = trEff(g), tp = +d.p, tv = +d.v; te.v[tp] = te.v[tp] === tv ? null : tv; break;
-    case 'tdone': var td = trEff(g); if (td.ok) { g.rounds[g.cur].tricks = td.ev.slice(); S.tr = null; R.refresh(g); S.sc = true; touch = true; } break;
-    case 'addsp': R.addSpecial(g, d.t); R.refresh(g); touch = true; break;
-    case 'fin': g.finished = true; g.finishedAt = Date.now(); S.view = 'hist'; touch = true; break;
+    case 'tdone':
+      var td = trEff(g);
+      if (td.ok) { g.rounds[g.cur].tricks = td.ev.slice(); S.tr = null; R.refresh(g); S.sh = false; dirty(g); } break;
+    case 'fin': g.finished = true; g.finishedAt = Date.now(); S.view = 'hist'; dirty(g); break;
     case 'edit':
       var i = +d.i, r = g.rounds[i];
       if (g.hidden && !r.done && i === g.cur) { alert('У прихованому режимі поточний раунд можна змінити після його завершення.'); break; }
@@ -177,18 +267,18 @@ function act(a, d) {
       var err = R.validate(g, ed.i);
       if (!err && wasDone && !R.complete(g, ed.i)) err = 'Завершений раунд: заповніть усі значення, сума взяток = ' + rr.cards;
       if (err) { rr.bids = ob; rr.tricks = ot; ed.err = err; }
-      else { R.refresh(g); S.edit = null; S.tr = null; touch = true; }
+      else { R.refresh(g); S.edit = null; S.tr = null; dirty(g); }
       break;
   }
-  if (touch && g) g.updated = Date.now();
-  save(); render();
+  render();
 }
 $.addEventListener('click', function (e) { var t = e.target.closest('[data-a]'); if (t) act(t.dataset.a, t.dataset); });
 $.addEventListener('input', function (e) {
   var t = e.target;
   if (t.dataset.i != null && S.draft) S.draft.names[+t.dataset.i] = t.value;
   else if (t.id === 'hid') S.draft.hidden = t.checked;
-  else if (t.dataset.s != null) { S.set.names[+t.dataset.s] = t.value; save(); }
+  else if (t.dataset.s != null) { S.set.names[+t.dataset.s] = t.value; sv('rp_set', S.set); }
+  else if (t.dataset.c) S.cd[t.dataset.c] = t.value;
 });
-render();
+boot();
 })();
