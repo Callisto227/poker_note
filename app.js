@@ -4,7 +4,8 @@ var R = window.RP, $ = document.getElementById('app');
 function ld(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
 function sv(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 var AUTO = (function () { var p = location.pathname.split('/')[1]; return /\.github\.io$/.test(location.hostname) && p ? location.hostname.split('.')[0] + '/' + p : ''; })();
-var C = ld('rp_cfg') || {}; C.repo = C.repo || AUTO;
+var DR = AUTO ? AUTO.split('/')[0] + '/poker_data' : '';
+var C = ld('rp_cfg') || {}; if (C.repo === AUTO) C = {}; C.repo = C.repo || DR; sv('rp_cfg', C);
 var P = ld('rp_pend') || { g: {}, del: [] }, L0 = ld('rp_v1') || {};
 var S = { games: [], set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
   unl: null, edit: null, sh: false, st: C.repo ? 'load' : 'off', cd: { tok: '', repo: C.repo || '' }, msg: '', pg: 0 };
@@ -12,9 +13,9 @@ var tm = null, busy = false, sha = null, prev = '';
 var esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 var G = () => S.games.find(g => g.id === S.gid);
 var fdate = t => new Date(t).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
-var stTxt = () => S.st === 'err' && S.err ? 'Помилка ' + S.err : ({ off: 'Сховище не вказано', load: 'Завантаження…', sync: 'Зберігаю…', ok: 'Збережено', err: 'Помилка', ro: 'Лише перегляд', notok: 'Не збережено: потрібен токен' })[S.st];
+var stTxt = () => S.st === 'err' && S.err ? 'Помилка ' + S.err : ({ off: 'Сховище не вказано', load: 'Завантаження…', sync: 'Зберігаю…', ok: 'Збережено', err: 'Помилка', ro: 'Лише перегляд', notok: 'Потрібен токен' })[S.st];
 function ui() { var e = document.getElementById('st'); if (e) e.textContent = stTxt(); }
-var br = () => C.repo === AUTO ? 'data' : '';
+var br = () => '';
 var canW = () => !!(C.tok && C.repo);
 
 /* ---------- сховище GitHub ---------- */
@@ -29,11 +30,6 @@ function api(m, body) {
 }
 async function pull() {
   var r = await api('GET');
-  if (r.status === 403 || r.status === 429) {
-    var rw = await fetch('https://raw.githubusercontent.com/' + C.repo + '/' + (br() || 'main') + '/games.json?t=' + Date.now(), { cache: 'no-store' });
-    if (!rw.ok) throw new Error(r.status);
-    return (await rw.json()).games || [];
-  }
   if (r.status === 404) { sha = null; return []; }
   if (!r.ok) throw new Error(r.status);
   var j = await r.json(); sha = j.sha; return JSON.parse(b64d(j.content)).games || [];
@@ -79,12 +75,14 @@ function drop(id) {
   return true;
 }
 async function refresh() {
-  if (!C.repo) return; S.st = 'load'; ui();
+  if (!C.repo) return;
+  if (!C.tok) { S.st = 'notok'; render(); return; }
+  S.st = 'load'; ui();
   try { S.games = applyPend(await pull()); S.games.forEach(R.refresh); S.st = pend() && !canW() ? 'notok' : (canW() ? 'ok' : 'ro'); } catch (e) { S.st = 'err'; }
   render();
 }
 async function conn() {
-  var tok = S.cd.tok.trim() || C.tok, repo = S.cd.repo.trim() || AUTO;
+  var tok = S.cd.tok.trim() || C.tok, repo = S.cd.repo.trim() || DR;
   if (!tok || !/^[^\/\s]+\/[^\/\s]+$/.test(repo)) { S.msg = 'Вкажіть токен і репозиторій (логін/назва)'; render(); return; }
   S.msg = 'Перевіряю…'; render();
   try {
@@ -103,6 +101,7 @@ async function boot() {
   localStorage.removeItem('rp_v1');
   S.games = Object.keys(P.g).map(id => P.g[id]); S.games.forEach(R.refresh); render();
   if (!C.repo) return;
+  if (!C.tok) { S.st = 'notok'; render(); return; }
   try { S.games = applyPend(await pull()); S.st = pend() && !canW() ? 'notok' : (canW() ? 'ok' : 'ro'); } catch (e) { S.st = 'err'; }
   S.games.forEach(R.refresh); render(); flush();
 }
@@ -117,7 +116,7 @@ function menu() {
   var un = S.games.filter(g => !g.finished).length;
   return '<div class="hero"><div class="logo">♠</div><h1>Розписний покер</h1></div>' + btn('new', 'Нова гра') + btn('cont', 'Продовжити гру' + (un ? ' (' + un + ')' : ''), '', !un) +
     btn('hist', 'Історія ігор', 'sec') + btn('stat', 'Статистика', 'sec') + btn('sett', 'Налаштування', 'sec') +
-    '<p class="mut" style="text-align:center"><span id="st">' + stTxt() + '</span>' + (!C.tok ? '<br>Щоб зберігати ігри, додайте токен у налаштуваннях (один раз на пристрої).' : '') + '</p>';
+    '<p class="mut" style="text-align:center"><span id="st">' + stTxt() + '</span>' + (!C.tok ? '<br>Щоб бачити й зберігати ігри, додайте токен у налаштуваннях (один раз на пристрої).' : '') + '</p>';
 }
 function newv() {
   var d = S.draft;
@@ -211,10 +210,10 @@ function statv() {
 function sett() {
   return bar('Налаштування') + '<div class="card"><label class="lb">Імена гравців за замовчуванням</label><div class="nrow">' +
     S.set.names.map((n, i) => '<input class="in" data-s="' + i + '" value="' + esc(n) + '" maxlength="16">').join('') + '</div></div>' +
-    '<div class="card"><label class="lb">Збереження в GitHub' + (C.tok ? ' · токен є' : '') + '</label><input class="in" type="password" data-c="tok" placeholder="' + (C.tok ? 'токен збережено' : 'токен github_pat_…') + '" autocomplete="off">' +
+    '<div class="card"><label class="lb">Приватне сховище GitHub' + (C.tok ? ' · токен є' : '') + '</label><input class="in" type="password" data-c="tok" placeholder="' + (C.tok ? 'токен збережено' : 'токен github_pat_…') + '" autocomplete="off">' +
     '<input class="in" data-c="repo" value="' + esc(S.cd.repo) + '" placeholder="логін/репозиторій" autocapitalize="off">' + (S.msg ? '<p class="mut">' + esc(S.msg) + '</p>' : '') + '</div>' +
     btn('conn', C.tok ? 'Оновити підключення' : 'Підключити') + (C.tok ? btn('disc', 'Видалити токен з пристрою', 'sec') : '') +
-    '<p class="mut" style="font-size:13px">Токен потрібен лише для запису, зберігається тільки на цьому пристрої. Історію можна переглядати й без нього.</p>';
+    '<p class="mut" style="font-size:13px">Дані лежать у вашому приватному репозиторії. Токен потрібен для перегляду й запису та зберігається лише на цьому пристрої.</p>';
 }
 function render() {
   var g = G(), v = S.view, h;
