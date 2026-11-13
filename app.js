@@ -7,7 +7,7 @@ var AUTO = (function () { var p = location.pathname.split('/')[1]; return /\.git
 var DR = AUTO ? AUTO.split('/')[0] + '/poker_data' : '';
 var C = ld('rp_cfg') || {}; if (C.repo === AUTO) C = {}; C.repo = C.repo || DR; sv('rp_cfg', C);
 var P = ld('rp_pend') || { g: {}, del: [] }, L0 = ld('rp_v1') || {}; P.pl = P.pl || {};
-var S = { games: [], players: [], set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
+var S = { games: [], players: [], egd: {}, win: false, set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
   unl: null, edit: null, sh: false, st: C.tok && C.repo ? 'load' : 'off', cd: { tok: '', repo: C.repo || '' }, msg: '', pg: 0 };
 var tm = null, busy = false, sha = null, prev = '';
 var esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -19,6 +19,21 @@ var br = () => '';
 var canW = () => !!(C.tok && C.repo);
 
 /* ---------- сховище GitHub ---------- */
+function parse(d) {
+  var pl = (d.players || []).map(p => d.v === 2 ? { id: p.id, name: p.n, updated: p.u, del: !!p.x } : p), nm = {};
+  pl.forEach(p => { nm[p.id] = p.name; });
+  return { g: (d.games || []).map(c => d.v === 2 ? R.unpack(c, nm) : c), p: pl };
+}
+function dump(games, players) {
+  var L = x => x.map(o => JSON.stringify(o)).join(',\n');
+  return '{"v":2,\n"players":[\n' + L(players.map(p => p.del ? { id: p.id, n: p.name, u: p.updated, x: 1 } : { id: p.id, n: p.name, u: p.updated })) +
+    '\n],\n"games":[\n' + L(games.map(g => R.pack(g, gids(g)))) + '\n]}';
+}
+function fillPl(games, pl) {
+  games.forEach(g => { var ids = gids(g); g.names.forEach((n, i) => { if (!pl.some(x => x.id === ids[i])) pl.push({ id: ids[i], name: n, updated: Date.now() }); }); });
+  return pl;
+}
+function fixNames() { S.games.forEach(g => { var ids = gids(g); g.names = ids.map((id, i) => pn(id) || g.names[i]); }); }
 function lsave() { sv('rp_v1', { games: S.games, players: S.players }); }
 var b64d = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g, '')), c => c.charCodeAt(0)));
 function b64e(s) { var u = new TextEncoder().encode(s), o = '', i; for (i = 0; i < u.length; i += 8192) o += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(o); }
@@ -33,7 +48,7 @@ async function pull() {
   var r = await api('GET');
   if (r.status === 404) { sha = null; return { g: [], p: [] }; }
   if (!r.ok) throw new Error(r.status);
-  var j = await r.json(), d = JSON.parse(b64d(j.content)); sha = j.sha; return { g: d.games || [], p: d.players || [] };
+  var j = await r.json(); sha = j.sha; return parse(JSON.parse(b64d(j.content)));
 }
 function applyPend(list) {
   list = list.filter(g => P.del.indexOf(g.id) < 0);
@@ -50,7 +65,7 @@ function applyPl(list) {
   });
   return list;
 }
-function load(rem) { S.games = applyPend(rem.g); S.players = applyPl(rem.p); }
+function load(rem) { S.games = applyPend(rem.g); S.players = applyPl(rem.p); fixNames(); }
 var pend = () => Object.keys(P.g).length || P.del.length || Object.keys(P.pl).length;
 async function flush() {
   if (!canW() || busy || !pend()) return;
@@ -59,8 +74,8 @@ async function flush() {
   var snp = {}; Object.keys(P.g).forEach(id => { snap[id] = P.g[id].updated; }); Object.keys(P.pl).forEach(id => { snp[id] = P.pl[id].updated; });
   try {
     for (var t = 0; t < 3 && !ok; t++) {
-      var rem = await pull(), list = applyPend(rem.g), pl = applyPl(rem.p);
-      var r = await api('PUT', { message: 'sync', content: b64e(JSON.stringify({ games: list, players: pl })), sha: sha || undefined });
+      var rem = await pull(), list = applyPend(rem.g), pl = fillPl(list, applyPl(rem.p));
+      var r = await api('PUT', { message: 'sync', content: b64e(dump(list, pl)), sha: sha || undefined });
       if (r.ok) {
         sha = (await r.json()).content.sha;
         Object.keys(snap).forEach(id => { if (P.g[id] && P.g[id].updated === snap[id]) delete P.g[id]; });
@@ -131,14 +146,7 @@ function addPl(name) {
   savePl({ id: id, name: name }); return id;
 }
 function ensurePl() { S.games.forEach(g => { var ids = gids(g); g.names.forEach((n, i) => { if (!S.players.some(x => x.id === ids[i])) savePl({ id: ids[i], name: n }); }); }); }
-function renamePl(p, nn) {
-  S.games.forEach(g => {
-    var ids = gids(g), ch = false;
-    ids.forEach((id, i) => { if (id === p.id && g.names[i] !== nn) { g.names[i] = nn; ch = true; } });
-    if (ch) { g.pids = ids; dirty(g); }
-  });
-  p.name = nn; savePl(p);
-}
+function renamePl(p, nn) { p.name = nn; fixNames(); savePl(p); }
 async function boot() {
   if (!canW()) {
     var m = {};
@@ -203,9 +211,10 @@ function gamev(g) {
     '<div class="tbl"><div class="row head"><div></div>' + g.names.map((n, p) => '<div class="nm' + (Ld.indexOf(p) > -1 ? ' lead' : '') + '">' + (r && p === R.dealer(g, i) ? '● ' : '') + esc(n) + '</div>').join('') + '</div>';
   g.rounds.forEach(function (x, k) { if (x.done) g.names.forEach(function (_, p) { run[p] += R.roundScore(x, p); }); t += row(g, k, run); });
   t += '</div><footer class="bot">';
-  if (ph === 'end') t += '<div class="dn">Переможець: <b>' + Ld.map(p => esc(g.names[p])).join(', ') + '</b></div>' + btn('fin', 'Завершити гру');
+  if (ph === 'end') t += '<div class="dn">Переможець: <b>' + Ld.map(p => esc(g.names[p])).join(', ') + '</b></div>' + btn('fin', g.finished ? 'Показати переможця' : 'Завершити гру');
   else t += '<div class="dn">Роздає: <b>' + esc(g.names[R.dealer(g, i)]) + '</b>' + (info(r, ph) ? ' · ' + info(r, ph) : '') + '</div>' + btn('sh', ph === 'bid' ? 'Ставка · ' + esc(g.names[R.actor(g)]) : 'Ввести взятки');
-  return t + '</footer>' + (S.sh && ph !== 'end' && !S.edit ? sheet(g, ph) : '');
+  var egg = r && r.type === 'Z' && S.set.egg !== false && !S.egd[g.id + '|' + i] && !S.edit && !S.win;
+  return t + '</footer>' + (egg ? eggv(g.id + '|' + i) : (S.sh && ph !== 'end' && !S.edit ? sheet(g, ph) : ''));
 }
 function trEff(g) {
   var r = g.rounds[g.cur], k = g.id + '|' + g.cur;
@@ -265,7 +274,8 @@ function statv() {
     '<p class="mut">Статистика з’явиться після першої завершеної гри.</p>') + '</div>' + pg;
 }
 function sett() {
-  return bar('Налаштування') +
+  return bar('Налаштування') + '<div class="card"><label class="sw" style="margin:0"><span>Пасхалка в золотому раунді</span><input type="checkbox" id="egg"' + (S.set.egg !== false ? ' checked' : '') + '></label>' +
+    '<label class="sw"><span>Звук фанфар</span><input type="checkbox" id="snd"' + (S.set.snd !== false ? ' checked' : '') + '></label></div>' +
     '<div class="card"><label class="lb">Приватне сховище GitHub' + (C.tok ? ' · токен є' : '') + '</label><input class="in" type="password" data-c="tok" placeholder="' + (C.tok ? 'токен збережено' : 'токен github_pat_…') + '" autocomplete="off">' +
     '<input class="in" data-c="repo" value="' + esc(S.cd.repo) + '" placeholder="логін/репозиторій" autocapitalize="off">' + (S.msg ? '<p class="mut">' + esc(S.msg) + '</p>' : '') + '</div>' +
     btn('conn', C.tok ? 'Оновити підключення' : 'Підключити') + (C.tok ? btn('disc', 'Видалити токен з пристрою', 'sec') : '') +
@@ -276,10 +286,48 @@ function render() {
   if (v === 'new') h = newv(); else if (v === 'game' && g) h = gamev(g); else if (v === 'hist') h = hist();
   else if (v === 'plv') h = playersv(); else if (v === 'stat') h = statv(); else if (v === 'sett') h = sett(); else h = menu();
   $.className = v === 'game' && g ? 'gv' : '';
-  $.innerHTML = h + (S.edit && g ? modal(g) : '');
+  $.innerHTML = h + (S.edit && g ? modal(g) : '') + (S.win && g ? winv(g) : '');
+  if (S.win) startFx();
   if (prev !== v) { window.scrollTo(0, 0); prev = v; }
 }
 function open(id) { var g = S.games.find(x => x.id === id); S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; S.tr = null; S.sh = !!g && R.phase(g) === 'bid'; }
+function fanfare() {
+  if (S.set.snd === false) return;
+  try {
+    var ac = new (window.AudioContext || window.webkitAudioContext)(), t0 = ac.currentTime + 0.05;
+    if (ac.resume) ac.resume();
+    var note = (f, s, d, ty, v) => { var o = ac.createOscillator(), g = ac.createGain(); o.type = ty; o.frequency.value = f; g.gain.setValueAtTime(0, t0 + s);
+      g.gain.linearRampToValueAtTime(v, t0 + s + .02); g.gain.exponentialRampToValueAtTime(.001, t0 + s + d); o.connect(g); g.connect(ac.destination); o.start(t0 + s); o.stop(t0 + s + d + .05); };
+    [[523.25, 0, .16], [523.25, .17, .16], [523.25, .34, .16], [659.25, .51, .32], [523.25, .87, .16], [659.25, 1.04, .16]].forEach(n => { note(n[0], n[1], n[2] + .2, 'square', .05); note(n[0], n[1], n[2] + .2, 'triangle', .16); });
+    [523.25, 659.25, 783.99, 1046.5].forEach(f => { note(f, 1.22, 1.5, 'square', .035); note(f, 1.22, 1.5, 'triangle', .14); });
+  } catch (e) {}
+}
+var fx = null;
+function startFx() {
+  if (fx) return;
+  var cols = ['#f1d47a', '#2a8a65', '#f6ecc8', '#ffffff', '#e0605a'], W = innerWidth, H = innerHeight;
+  fx = Array.from({ length: 110 }, () => ({ x: Math.random() * W, y: -Math.random() * H, vx: (Math.random() - .5) * 2, vy: 2 + Math.random() * 3, s: 5 + Math.random() * 7, r: Math.random() * 6, vr: (Math.random() - .5) * .3, c: cols[Math.random() * cols.length | 0] }));
+  var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  (function loop() {
+    var c = document.getElementById('cf');
+    if (!S.win || !c) { fx = null; return; }
+    if (c.width !== innerWidth || c.height !== innerHeight) { c.width = innerWidth; c.height = innerHeight; }
+    var x = c.getContext('2d'); x.clearRect(0, 0, c.width, c.height);
+    fx.forEach(p => {
+      if (!still) { p.x += p.vx; p.y += p.vy; p.r += p.vr; if (p.y > c.height + 10) { p.y = -10; p.x = Math.random() * c.width; } }
+      x.save(); x.translate(p.x, p.y); x.rotate(p.r); x.fillStyle = p.c; x.fillRect(-p.s / 2, -p.s / 3, p.s, p.s * .6); x.restore();
+    });
+    if (!still) requestAnimationFrame(loop);
+  })();
+}
+function winv(g) {
+  var T = R.totals(g), Ld = R.leaders(g), ord = g.names.map((n, i) => i).sort((x, y) => T[y] - T[x]);
+  return '<div class="mask win"><canvas id="cf"></canvas><div class="wc"><div class="tr0">🏆</div><div class="wl">Переможець</div><div class="wn">' + Ld.map(p => esc(g.names[p])).join(' і ') + '</div><div class="ws">' +
+    ord.map((p, k) => '<div><span>' + (k + 1) + '. ' + esc(g.names[p]) + '</span><b>' + T[p] + '</b></div>').join('') + '</div>' + btn('winx', 'Готово') + '</div></div>';
+}
+function eggv(key) {
+  return '<div class="mask c"><div class="eg"><div class="big">💋</div><p>Поцілуй в щічку коханого на удачу</p>' + btn('egx', 'Поцілував(ла)', '', 0, ' data-k="' + key + '"') + '</div></div>';
+}
 function act(a, d) {
   var g = G();
   switch (a) {
@@ -324,7 +372,9 @@ function act(a, d) {
     case 'tdone':
       var td = trEff(g);
       if (td.ok) { g.rounds[g.cur].tricks = td.ev.slice(); S.tr = null; R.refresh(g); S.sh = false; dirty(g); } break;
-    case 'fin': g.finished = true; g.finishedAt = Date.now(); S.view = 'hist'; dirty(g); break;
+    case 'fin': if (!g.finished) { g.finished = true; g.finishedAt = Date.now(); dirty(g); } S.win = true; fanfare(); break;
+    case 'winx': S.win = false; S.view = 'hist'; S.pg = 0; break;
+    case 'egx': S.egd[d.k] = 1; break;
     case 'edit':
       var i = +d.i, r = g.rounds[i];
       if (g.hidden && !r.done && i === g.cur) { alert('У прихованому режимі поточний раунд можна змінити після його завершення.'); break; }
@@ -354,6 +404,7 @@ $.addEventListener('change', function (e) {
 });
 $.addEventListener('input', function (e) {
   var t = e.target;
+  if (t.id === 'egg' || t.id === 'snd') { S.set[t.id] = t.checked; sv('rp_set', S.set); return; }
   if (t.dataset.i != null && S.draft) S.draft.names[+t.dataset.i] = t.value;
   else if (t.id === 'hid') S.draft.hidden = t.checked;
   else if (t.dataset.s != null) { S.set.names[+t.dataset.s] = t.value; sv('rp_set', S.set); }

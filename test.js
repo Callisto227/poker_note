@@ -6,4 +6,5 @@ g.rounds[11].bids = [6, null, 6]; a.ok(!R.bidAllowed(g, 11, 1, 0)); a.ok(R.bidAl
 R.setBid(g, 0, 0); R.setBid(g, 1, 0); a.ok(!R.bidAllowed(g, 0, 2, 1)); R.setBid(g, 2, 0);
 R.setTricks(g, 0, 1); R.setTricks(g, 1, 0); R.setTricks(g, 2, 0);
 a.strictEqual(g.cur, 1); a.deepStrictEqual(R.totals(g), [1, 5, 5]); a.deepStrictEqual(R.leaders(g), [1, 2]);
-g.rounds[1].tricks = [2, 1, 1]; a.ok(R.validate(g, 1)); a.strictEqual(R.dealer(R.newGame(['М','С','К'],1,false),0),0);const g2=R.newGame(['A','B','C'],0,false);g2.pids=['x','y','z'];g2.finished=true;a.strictEqual(R.stats([g2],[{id:'x',name:'Аня'}])[0].name,'Аня');console.log('OK');
+g.rounds[1].tricks = [2, 1, 1]; a.ok(R.validate(g, 1)); a.strictEqual(R.dealer(R.newGame(['М','С','К'],1,false),0),0);const g2=R.newGame(['A','B','C'],0,false);g2.pids=['x','y','z'];g2.finished=true;a.strictEqual(R.stats([g2],[{id:'x',name:'Аня'}])[0].name,'Аня');const g3=R.newGame(['A','B','C'],0,false);R.refresh(g3);[0,1,2].forEach(p=>R.setBid(g3,p,0));R.setTricks(g3,0,1);R.setTricks(g3,1,0);R.setTricks(g3,2,0);
+const u=R.unpack(R.pack(g3,['a','b','c']),{a:'A',b:'B',c:'C'});a.deepStrictEqual(R.totals(u),R.totals(g3));a.strictEqual(u.cur,1);a.strictEqual(u.rounds.length,28);console.log(JSON.stringify(R.pack(g3,['a','b','c'])));console.log('OK');

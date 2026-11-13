@@ -108,7 +108,29 @@ function stats(games, players, pidf) {
   return Object.keys(m).map(k => ({ name: m[k].name, games: m[k].games, wins: m[k].wins,
     avg: Math.round(m[k].sum / m[k].games), best: m[k].best })).sort((a, b) => b.wins - a.wins || b.avg - a.avg);
 }
-var api = { dealer, newGame, label, hasBids, addSpecial, order, score, bidAllowed, validate, complete, refresh, phase, actor, can,
+function pack(g, ids) {
+  var o = { id: g.id, t: g.created, u: g.updated || g.created, f: g.first, p: ids };
+  if (g.hidden) o.h = 1;
+  if (g.finished) o.e = g.finishedAt || o.u;
+  o.s = g.rounds.filter(r => r.type !== 'N').map(r => r.type).join('');
+  var rs = g.rounds.map(r => r.bids.every(x => x === null) && r.tricks.every(x => x === null) ? '' :
+    r.bids.map(x => x === null ? '-' : x).join(',') + '|' + r.tricks.map(x => x === null ? '-' : x).join(','));
+  while (rs.length && !rs[rs.length - 1]) rs.pop();
+  o.r = rs; return o;
+}
+function unpack(c, nm) {
+  var g = newGame(c.p.map(id => nm[id] || id), c.f, !!c.h), num = x => x === '-' || x === '' ? null : +x;
+  g.rounds = g.rounds.filter(r => r.type === 'N');
+  (c.s == null ? 'BTZ' : c.s).split('').forEach(t => addSpecial(g, t));
+  (c.r || []).forEach((s, i) => {
+    var r = g.rounds[i], q = (s || '').split('|');
+    if (r && q.length === 2) { r.bids = q[0].split(',').map(num); r.tricks = q[1].split(',').map(num); }
+  });
+  g.id = c.id; g.created = c.t; g.updated = c.u; g.pids = c.p.slice(); g.finished = !!c.e;
+  if (c.e) g.finishedAt = c.e;
+  return refresh(g);
+}
+var api = { pack, unpack, dealer, newGame, label, hasBids, addSpecial, order, score, bidAllowed, validate, complete, refresh, phase, actor, can,
   setBid, setTricks, resetTricks, roundScore, totals, leaders, stats };
 if (typeof module !== 'undefined') module.exports = api; else g.RP = api;
 })(this);
