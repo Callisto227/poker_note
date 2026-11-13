@@ -333,7 +333,7 @@ function zemv() {
     '<circle cx="50" cy="50" r="49" fill="#0d0d0d"/><circle cx="50" cy="50" r="45" fill="none" stroke="#262626" stroke-width=".8"/><circle cx="50" cy="50" r="41" fill="none" stroke="#262626" stroke-width=".8"/>' +
     '<circle cx="50" cy="50" r="37" fill="none" stroke="#262626" stroke-width=".8"/><circle cx="50" cy="50" r="26" fill="none" stroke="#262626" stroke-width=".8"/><circle cx="50" cy="50" r="22" fill="none" stroke="#262626" stroke-width=".8"/>' +
     '<path d="M 12 38 A 40 40 0 0 1 38 12" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="3" stroke-linecap="round"/><path d="M 88 62 A 40 40 0 0 1 62 88" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="3" stroke-linecap="round"/>' +
-    '<text font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="8.6" font-weight="300" letter-spacing="3.2" fill="#f1d47a"><textPath href="#za" startOffset="50%" text-anchor="middle">ЗЕМФИРА</textPath></text>' +
+    '<text font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="8.6" font-weight="300" letter-spacing="3.2" fill="#f1d47a"><textPath href="#za" startOffset="50%" text-anchor="middle">ЗЕМФИРА НАША ЛЮБИМАЯ НЕ МОЖЕМ БЕЗ НЕ</textPath></text>' +
     '<circle cx="50" cy="50" r="15" fill="#1d6048"/><circle cx="50" cy="50" r="15" fill="none" stroke="#f1d47a" stroke-width=".8"/><circle cx="50" cy="50" r="2" fill="#0d0d0d"/></svg></div>' +
     '<p>Увімкни Земфіру</p>' + btn('zx', 'Вже грає') + '</div></div>';
 }
