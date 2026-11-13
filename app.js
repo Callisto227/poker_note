@@ -86,19 +86,22 @@ async function refresh() {
   render();
 }
 async function conn() {
-  var tok = S.cd.tok.trim() || C.tok, repo = S.cd.repo.trim() || DR;
+  var tok = S.cd.tok.replace(/\s/g, '') || C.tok, repo = S.cd.repo.replace(/\s/g, '') || DR;
   if (!tok || !/^[^\/\s]+\/[^\/\s]+$/.test(repo)) { S.msg = 'Вкажіть токен і репозиторій (логін/назва)'; render(); return; }
   S.msg = 'Перевіряю…'; render();
   try {
     var rr = await fetch('https://api.github.com/repos/' + repo, { headers: { Authorization: 'Bearer ' + tok } });
-    if (!rr.ok) throw new Error('repo');
+    if (!rr.ok) throw new Error(String(rr.status));
     var pm = (await rr.json()).permissions;
     if (!pm || !pm.push) { S.msg = 'Токен без права запису (потрібно Contents: Read and write)'; render(); return; }
     C = { tok: tok, repo: repo }; sv('rp_cfg', C); S.cd.tok = ''; sha = null; S.msg = 'Підключено';
     S.games.forEach(g => { P.g[g.id] = g; }); sv('rp_pend', P); localStorage.removeItem('rp_v1');
     try { S.games = applyPend(await pull()); S.games.forEach(R.refresh); } catch (e) {}
     S.st = 'ok'; flush();
-  } catch (e) { S.msg = 'Не вдалося підключитись. Перевірте токен і репозиторій.'; }
+  } catch (e) {
+    var ec = String(e.message || e);
+    S.msg = /^\d+$/.test(ec) ? 'Помилка ' + ec + ' для ' + repo + (ec === '401' ? ': токен недійсний або скопійований не повністю' : ': токен не має доступу до цього репозиторію або назва неправильна') : 'Немає зв’язку з GitHub, спробуйте ще раз';
+  }
   render();
 }
 async function boot() {
