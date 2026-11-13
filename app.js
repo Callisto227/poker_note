@@ -7,7 +7,7 @@ var AUTO = (function () { var p = location.pathname.split('/')[1]; return /\.git
 var DR = AUTO ? AUTO.split('/')[0] + '/poker_data' : '';
 var C = ld('rp_cfg') || {}; if (C.repo === AUTO) C = {}; C.repo = C.repo || DR; sv('rp_cfg', C);
 var P = ld('rp_pend') || { g: {}, del: [] }, L0 = ld('rp_v1') || {}; P.pl = P.pl || {};
-var S = { games: [], players: [], egd: {}, win: false, set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
+var S = { games: [], players: [], egd: {}, win: false, zem: false, set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
   unl: null, edit: null, sh: false, st: C.tok && C.repo ? 'load' : 'off', cd: { tok: '', repo: C.repo || '' }, msg: '', pg: 0 };
 var tm = null, busy = false, sha = null, prev = '';
 var esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -275,7 +275,9 @@ function statv() {
 }
 function sett() {
   return bar('Налаштування') + '<div class="card"><label class="sw" style="margin:0"><span>Пасхалка в золотому раунді</span><input type="checkbox" id="egg"' + (S.set.egg !== false ? ' checked' : '') + '></label>' +
-    '<label class="sw"><span>Звук фанфар</span><input type="checkbox" id="snd"' + (S.set.snd !== false ? ' checked' : '') + '></label></div>' +
+    '<label class="sw"><span>Звук фанфар</span><input type="checkbox" id="snd"' + (S.set.snd !== false ? ' checked' : '') + '></label>' +
+    '<label class="sw"><span>Нагадування про Земфіру</span><input type="checkbox" id="zem"' + (S.set.zem !== false ? ' checked' : '') + '></label>' +
+    '<div class="sw"><span>Фото для нагадування</span>' + (ld('rp_zem') ? '<img class="th" src="' + ld('rp_zem') + '" alt=""><button class="rm" data-a="zrm">✕</button>' : '') + '<label class="chip pk">Обрати<input type="file" accept="image/*" id="zf" hidden></label></div></div>' +
     '<div class="card"><label class="lb">Приватне сховище GitHub' + (C.tok ? ' · токен є' : '') + '</label><input class="in" type="password" data-c="tok" placeholder="' + (C.tok ? 'токен збережено' : 'токен github_pat_…') + '" autocomplete="off">' +
     '<input class="in" data-c="repo" value="' + esc(S.cd.repo) + '" placeholder="логін/репозиторій" autocapitalize="off">' + (S.msg ? '<p class="mut">' + esc(S.msg) + '</p>' : '') + '</div>' +
     btn('conn', C.tok ? 'Оновити підключення' : 'Підключити') + (C.tok ? btn('disc', 'Видалити токен з пристрою', 'sec') : '') +
@@ -286,11 +288,11 @@ function render() {
   if (v === 'new') h = newv(); else if (v === 'game' && g) h = gamev(g); else if (v === 'hist') h = hist();
   else if (v === 'plv') h = playersv(); else if (v === 'stat') h = statv(); else if (v === 'sett') h = sett(); else h = menu();
   $.className = v === 'game' && g ? 'gv' : '';
-  $.innerHTML = h + (S.edit && g ? modal(g) : '') + (S.win && g ? winv(g) : '');
+  $.innerHTML = h + (S.edit && g ? modal(g) : '') + (S.win && g ? winv(g) : '') + (S.zem && g && S.view === 'game' ? zemv() : '');
   if (S.win) startFx();
   if (prev !== v) { window.scrollTo(0, 0); prev = v; }
 }
-function open(id) { var g = S.games.find(x => x.id === id); S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; S.tr = null; S.sh = !!g && R.phase(g) === 'bid'; }
+function open(id) { var g = S.games.find(x => x.id === id); S.zem = S.set.zem !== false && !!g && !g.finished; S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; S.tr = null; S.sh = !!g && R.phase(g) === 'bid'; }
 function fanfare() {
   if (S.set.snd === false) return;
   try {
@@ -324,6 +326,23 @@ function winv(g) {
   var T = R.totals(g), Ld = R.leaders(g), ord = g.names.map((n, i) => i).sort((x, y) => T[y] - T[x]);
   return '<div class="mask win"><canvas id="cf"></canvas><div class="wc"><div class="tr0">🏆</div><div class="wl">Переможець</div><div class="wn">' + Ld.map(p => esc(g.names[p])).join(' і ') + '</div><div class="ws">' +
     ord.map((p, k) => '<div><span>' + (k + 1) + '. ' + esc(g.names[p]) + '</span><b>' + T[p] + '</b></div>').join('') + '</div>' + btn('winx', 'Готово') + '</div></div>';
+}
+function zemPhoto(f) {
+  if (!f) return;
+  var im = new Image(), u = URL.createObjectURL(f);
+  im.onload = function () {
+    var k = Math.min(1, 420 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+    c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    sv('rp_zem', c.toDataURL('image/jpeg', .82)); URL.revokeObjectURL(u); render();
+  };
+  im.src = u;
+}
+function zemv() {
+  var ph = ld('rp_zem');
+  return '<div class="mask c"><div class="eg">' + (ph ? '<img class="cov" src="' + ph + '" alt="">' :
+    '<svg class="cov vin" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#111"/><circle cx="50" cy="50" r="38" fill="none" stroke="#333" stroke-width="2"/><circle cx="50" cy="50" r="28" fill="none" stroke="#333" stroke-width="2"/><circle cx="50" cy="50" r="16" fill="#1d6048"/><circle cx="50" cy="50" r="3" fill="#111"/></svg>') +
+    '<p>Увімкни Земфіру</p>' + btn('zx', 'Вже грає') + '</div></div>';
 }
 function eggv(key) {
   return '<div class="mask c"><div class="eg"><div class="big">💋</div><p>Поцілуй в щічку коханого на удачу</p>' + btn('egx', 'Поцілувала', '', 0, ' data-k="' + key + '"') + '</div></div>';
@@ -374,6 +393,8 @@ function act(a, d) {
       if (td.ok) { g.rounds[g.cur].tricks = td.ev.slice(); S.tr = null; R.refresh(g); S.sh = false; dirty(g); } break;
     case 'fin': if (!g.finished) { g.finished = true; g.finishedAt = Date.now(); dirty(g); } S.win = true; fanfare(); break;
     case 'winx': S.win = false; S.view = 'hist'; S.pg = 0; break;
+    case 'zx': S.zem = false; break;
+    case 'zrm': localStorage.removeItem('rp_zem'); break;
     case 'egx': S.egd[d.k] = 1; break;
     case 'edit':
       var i = +d.i, r = g.rounds[i];
@@ -396,7 +417,9 @@ function act(a, d) {
 }
 $.addEventListener('click', function (e) { var t = e.target.closest('[data-a]'); if (t) act(t.dataset.a, t.dataset); });
 $.addEventListener('change', function (e) {
-  var t = e.target; if (t.dataset.p == null || !S.draft) return;
+  var t = e.target;
+  if (t.id === 'zf') { zemPhoto(t.files[0]); return; }
+  if (t.dataset.p == null || !S.draft) return;
   var i = +t.dataset.p;
   if (t.value === '+') { var nn = (prompt('Ім’я нового гравця') || '').trim(), id = nn && addPl(nn); if (id) S.draft.pids[i] = id; }
   else S.draft.pids[i] = t.value;
@@ -404,7 +427,7 @@ $.addEventListener('change', function (e) {
 });
 $.addEventListener('input', function (e) {
   var t = e.target;
-  if (t.id === 'egg' || t.id === 'snd') { S.set[t.id] = t.checked; sv('rp_set', S.set); return; }
+  if (t.id === 'egg' || t.id === 'snd' || t.id === 'zem') { S.set[t.id] = t.checked; sv('rp_set', S.set); return; }
   if (t.dataset.i != null && S.draft) S.draft.names[+t.dataset.i] = t.value;
   else if (t.id === 'hid') S.draft.hidden = t.checked;
   else if (t.dataset.s != null) { S.set.names[+t.dataset.s] = t.value; sv('rp_set', S.set); }
