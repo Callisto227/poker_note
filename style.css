@@ -85,3 +85,8 @@ select.in{-webkit-appearance:none;appearance:none;text-align-last:left;margin:4p
 .card .sw{margin-top:12px}
 .vwrap{width:min(60vw,240px);height:min(60vw,240px);margin:0 auto 12px;border-radius:50%;box-shadow:0 10px 28px rgba(0,0,0,.35)}
 .vwrap svg{display:block;width:100%;height:100%;animation:spin 6s linear infinite}
+.vwrap{width:min(55vw,220px,26dvh)!important;height:min(55vw,220px,26dvh)!important}
+.vwrap.fast svg{animation-duration:.7s}
+.zr{min-height:26px;margin:2px 0 10px;font-size:16px;color:var(--mut)}
+.zr.done{color:var(--ink);font-weight:800;font-size:22px;animation:pop .4s cubic-bezier(.2,1.4,.4,1)}
+.eg .btn{margin:6px 0}.eg p{margin:8px 0 6px}

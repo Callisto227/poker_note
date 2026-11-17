@@ -7,7 +7,7 @@ var AUTO = (function () { var p = location.pathname.split('/')[1]; return /\.git
 var DR = AUTO ? AUTO.split('/')[0] + '/poker_data' : '';
 var C = ld('rp_cfg') || {}; if (C.repo === AUTO) C = {}; C.repo = C.repo || DR; sv('rp_cfg', C);
 var P = ld('rp_pend') || { g: {}, del: [] }, L0 = ld('rp_v1') || {}; P.pl = P.pl || {};
-var S = { games: [], players: [], egd: {}, win: false, zem: false, set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
+var S = { games: [], players: [], egd: {}, win: false, zem: false, zpick: '', zbusy: false, set: ld('rp_set') || L0.set || { names: ['Гравець 1', 'Гравець 2', 'Гравець 3'] }, view: 'menu', gid: null, draft: null,
   unl: null, edit: null, sh: false, st: C.tok && C.repo ? 'load' : 'off', cd: { tok: '', repo: C.repo || '' }, msg: '', pg: 0 };
 var tm = null, busy = false, sha = null, prev = '';
 var esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -293,7 +293,7 @@ function render() {
   if (S.win) startFx();
   if (prev !== v) { window.scrollTo(0, 0); prev = v; }
 }
-function open(id) { var g = S.games.find(x => x.id === id); S.zem = S.set.zem !== false && !!g && !g.finished; S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; S.tr = null; S.sh = !!g && R.phase(g) === 'bid'; }
+function open(id) { var g = S.games.find(x => x.id === id); S.zem = S.set.zem !== false && !!g && !g.finished; S.zpick = ''; S.gid = id; S.view = 'game'; S.unl = null; S.edit = null; S.tr = null; S.sh = !!g && R.phase(g) === 'bid'; }
 function fanfare() {
   if (S.set.snd === false) return;
   try {
@@ -328,6 +328,20 @@ function winv(g) {
   return '<div class="mask win"><canvas id="cf"></canvas><div class="wc"><div class="tr0">🏆</div><div class="wl">Переможець</div><div class="wn">' + Ld.map(p => esc(g.names[p])).join(' і ') + '</div><div class="ws">' +
     ord.map((p, k) => '<div><span>' + (k + 1) + '. ' + esc(g.names[p]) + '</span><b>' + T[p] + '</b></div>').join('') + '</div>' + btn('winx', 'Готово') + '</div></div>';
 }
+var ZL = ['Бордерлайн', 'Лучшее 1', 'Лучшее 2', 'Спасибо', 'Самолеты', 'Ромашки', '14 недель тишины'];
+function zrand() {
+  if (S.zbusy) return; S.zbusy = true;
+  var n = 0, fin, w = document.querySelector('.vwrap');
+  do { fin = ZL[Math.random() * ZL.length | 0]; } while (fin === S.zpick && ZL.length > 1);
+  if (w) w.classList.add('fast');
+  (function tick() {
+    var e = document.getElementById('zr'), last = n >= 14, t = last ? fin : ZL[Math.random() * ZL.length | 0];
+    if (e) { e.textContent = t; e.className = 'zr' + (last ? ' done' : ''); }
+    if (!last) { n++; setTimeout(tick, 60 + n * 14); return; }
+    S.zpick = fin; S.zbusy = false;
+    var w2 = document.querySelector('.vwrap'); if (w2) w2.classList.remove('fast');
+  })();
+}
 function zemv() {
   return '<div class="mask c"><div class="eg"><div class="vwrap"><svg viewBox="0 0 100 100"><defs><path id="za" d="M 15 50 A 35 35 0 0 1 85 50"/></defs>' +
     '<circle cx="50" cy="50" r="49" fill="#0d0d0d"/><circle cx="50" cy="50" r="45" fill="none" stroke="#262626" stroke-width=".8"/><circle cx="50" cy="50" r="41" fill="none" stroke="#262626" stroke-width=".8"/>' +
@@ -335,7 +349,7 @@ function zemv() {
     '<path d="M 12 38 A 40 40 0 0 1 38 12" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="3" stroke-linecap="round"/><path d="M 88 62 A 40 40 0 0 1 62 88" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="3" stroke-linecap="round"/>' +
     '<text font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="8.6" font-weight="300" letter-spacing="3.2" fill="#f1d47a"><textPath href="#za" startOffset="50%" text-anchor="middle">ЗЕМФИРА</textPath></text>' +
     '<circle cx="50" cy="50" r="15" fill="#1d6048"/><circle cx="50" cy="50" r="15" fill="none" stroke="#f1d47a" stroke-width=".8"/><circle cx="50" cy="50" r="2" fill="#0d0d0d"/></svg></div>' +
-    '<p>Увімкни Земфіру</p>' + btn('zx', 'Вже грає') + '</div></div>';
+    '<p>Увімкни Земфіру</p><div class="zr' + (S.zpick ? ' done' : '') + '" id="zr">' + (S.zpick ? esc(S.zpick) : 'Не знаєш, що ставити?') + '</div>' + btn('zrand', 'Обрати платівку', 'sec') + btn('zx', 'Вже грає') + '</div></div>';
 }
 function eggv(key) {
   return '<div class="mask c"><div class="eg"><div class="big">💋</div><p>Поцілуй в щічку коханого на удачу</p>' + btn('egx', 'Поцілувала', '', 0, ' data-k="' + key + '"') + '</div></div>';
@@ -386,6 +400,7 @@ function act(a, d) {
       if (td.ok) { g.rounds[g.cur].tricks = td.ev.slice(); S.tr = null; R.refresh(g); S.sh = false; dirty(g); } break;
     case 'fin': if (!g.finished) { g.finished = true; g.finishedAt = Date.now(); dirty(g); } S.win = true; fanfare(); break;
     case 'winx': S.win = false; S.view = 'hist'; S.pg = 0; break;
+    case 'zrand': zrand(); return;
     case 'zx': S.zem = false; break;
     case 'egx': S.egd[d.k] = 1; break;
     case 'edit':
